@@ -1,0 +1,15 @@
+{
+  "name": "PocketTerm Official Repository",
+  "id": "pocketterm-main",
+  "description": "Official PocketTerm package repository",
+  "version": 1,
+  "format": "pocketterm",
+  "architectures": [
+    "x86_64"
+  ],
+  "index": {
+    "x86_64": "indexes/x86_64.json"
+  },
+  "package_directory": "packages",
+  "default_branch": "main"
+}
