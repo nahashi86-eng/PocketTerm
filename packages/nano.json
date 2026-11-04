@@ -1,0 +1,14 @@
+{
+  "name": "nano",
+  "display_name": "GNU Nano",
+  "version": "latest",
+  "architecture": "x86_64",
+  "description": "A small and friendly terminal text editor.",
+  "type": "source",
+  "source": {
+    "repository": "https://git.savannah.gnu.org/git/nano.git",
+    "method": "git"
+  },
+  "dependencies": [],
+  "license": "GPL-3.0-or-later"
+}
