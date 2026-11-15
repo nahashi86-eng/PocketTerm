@@ -153,6 +153,14 @@ PLUGIN_REPO_API = "https://api.github.com/repos/nahashi86-eng/PocketTerm/git/tre
 PLUGIN_RAW_BASE = "https://raw.githubusercontent.com/nahashi86-eng/PocketTerm/main/"
 PLUGIN_REPO_URL = "https://github.com/nahashi86-eng/PocketTerm.git"
 
+# Auto update: the running script is replaced by this file from GitHub (a backup is kept first).
+UPDATE_URL = PLUGIN_RAW_BASE + "client/pocketterm.py"
+UPDATE_CHECK_DELAY_MS = 8000                  # first check shortly after start-up
+UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000       # then every 6 hours while PocketTerm is open
+UPDATE_MIN_BYTES = 50_000                     # sanity limits on the downloaded file
+UPDATE_MAX_BYTES = 5_000_000
+UPDATE_BACKUPS_KEEP = 5
+
 NAV_GROUPS = [
     ("Workspace", [("Dashboard", PAGE_DASHBOARD), ("Terminal View", PAGE_TERMINAL), ("VS Code", PAGE_VSCODE),
                    ("Projects", PAGE_PROJECTS), ("Files", PAGE_FILES), ("Snippets", PAGE_SNIPPETS)]),
@@ -224,6 +232,7 @@ class Settings:
         "firefox_path": "",                                 # optional override; empty = auto-detect Firefox Portable
         "snippets": [{"name": "Git status", "command": "git status"}],
         "enabled_plugins": [],                              # only these plugins are executed
+        "auto_update": True, "update_hash": "",  # GitHub auto update
     }
     STR_LISTS = ("pinned_projects", "recent_projects", "nav_collapsed", "enabled_plugins")
     PATH_KEYS = ("launcher_path", "bash_path", "git_path", "vscode_exe", "firefox_path")
@@ -1926,6 +1935,56 @@ class ManagedProcess:
 # MAIN WINDOW
 # ============================================================
 
+def source_hash(data):
+    """SHA-256 of a source file, ignoring Windows/Unix line-ending differences."""
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def download_update(timeout=20):
+    """Download the latest source from GitHub (raw bytes). Raises on any failure."""
+    url = f"{UPDATE_URL}?nocache={int(time.time())}"
+    request = urllib.request.Request(url, headers={"User-Agent": "PocketTerm-Updater", "Cache-Control": "no-cache"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        data = response.read(UPDATE_MAX_BYTES + 1)
+    if len(data) > UPDATE_MAX_BYTES:
+        raise ValueError("The update file is unexpectedly large.")
+    return data
+
+
+def validate_update(data):
+    """Refuse anything that isn't a complete, syntactically valid PocketTerm script."""
+    if len(data) < UPDATE_MIN_BYTES:
+        raise ValueError("The downloaded file is too small to be PocketTerm.")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("The downloaded file is not valid UTF-8 text.")
+    if "class MainWindow" not in text or "__main__" not in text:
+        raise ValueError("The downloaded file doesn't look like PocketTerm.")
+    try:
+        compile(text, "pocketterm_update.py", "exec")
+    except (SyntaxError, ValueError) as exc:
+        raise ValueError(f"The downloaded file has a syntax error: {exc}")
+
+
+def install_update(data):
+    """Back up the running script, then atomically replace it. Returns the backup path."""
+    script = Path(__file__).resolve()
+    backup_dir = APP_DIR / "Config" / "update_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup = backup_dir / f"{script.stem}_{time.strftime('%Y%m%d_%H%M%S')}{script.suffix}"
+    shutil.copy2(script, backup)
+    for old in sorted(backup_dir.glob(f"{script.stem}_*{script.suffix}"))[:-UPDATE_BACKUPS_KEEP]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    tmp = script.with_name(script.name + ".update")
+    tmp.write_bytes(data)
+    os.replace(tmp, script)
+    return backup
+
+
 class MainWindow(QMainWindow):
     # Emitted from background threads, handled on the UI thread.
     remote_devices_ready = Signal(object)
@@ -1937,6 +1996,7 @@ class MainWindow(QMainWindow):
     plugins_loaded = Signal(object, str)
     plugin_preview_ready = Signal(str, str)
     plugin_action_done = Signal(bool, str)
+    update_checked = Signal(object, str, bool)
 
     def __init__(self):
         super().__init__()
@@ -1962,6 +2022,7 @@ class MainWindow(QMainWindow):
         self._drive_tick_count = 0
         self._low_alerted = set()
         self._skip_close_confirm = False
+        self._update_busy = False
         self.web_view = self._devtools = None
         self._web_started = self._ai_checked = False
         self._ai_deadline = 0.0
@@ -1998,6 +2059,7 @@ class MainWindow(QMainWindow):
                           (self.plugins_loaded, self._on_plugins_loaded),
                           (self.plugin_preview_ready, self._on_plugin_preview_ready),
                           (self.plugin_action_done, self._on_plugin_action_done),
+                          (self.update_checked, self._on_update_checked),
                           (self.remote_devices_ready, self._on_remote_devices_ready),
                           (self.remote_result_ready, self._on_remote_result_ready)):
             sig.connect(slot)
@@ -2061,6 +2123,8 @@ class MainWindow(QMainWindow):
         self._drives_timer = every(DRIVE_REFRESH_MS, self._drives_tick)   # also ~1/min for low-space alerts
         self._ports_timer = every(5000, self._ports_tick)
         self._dashboard_timer = every(3000, self._refresh_dashboard)
+        self._update_timer = every(UPDATE_INTERVAL_MS, self._auto_update_check)
+        QTimer.singleShot(UPDATE_CHECK_DELAY_MS, self._auto_update_check)
         QTimer.singleShot(250, self._refresh_dashboard)
         if self.settings.get("low_space_alerts"):
             QTimer.singleShot(3000, self.refresh_drives)
@@ -2788,6 +2852,103 @@ class MainWindow(QMainWindow):
         (log.info if ok else log.warning)(message)
         if ok:
             self.refresh_local_plugins()
+
+    # ---------- auto update (GitHub) ----------
+
+    def _auto_update_check(self):
+        if self.settings.get("auto_update"):
+            self.check_for_updates(manual=False)
+
+    def check_updates_now(self):
+        self.check_for_updates(manual=True)
+
+    def check_for_updates(self, manual=False):
+        if self._update_busy:
+            if manual:
+                QMessageBox.information(self, "Update", "An update check is already running.")
+            return
+        self._update_busy = True
+
+        def work():
+            try:
+                data = download_update()
+            except Exception as exc:
+                self.update_checked.emit(None, str(exc), manual)
+                return
+            self.update_checked.emit(data, "", manual)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_update_checked(self, data, error, manual):
+        self._update_busy = False
+        if error:
+            log.warning("Update check failed: %s", error)
+            if manual:
+                QMessageBox.warning(self, "Update check failed", f"Could not reach GitHub:\n{error}")
+            return
+        try:
+            validate_update(data)
+            local_hash = source_hash(Path(__file__).resolve().read_bytes())
+        except (ValueError, OSError) as exc:
+            log.warning("Update rejected: %s", exc)
+            if manual:
+                QMessageBox.warning(self, "Update rejected", str(exc))
+            return
+
+        remote_hash = source_hash(data)
+        if remote_hash == local_hash:
+            self.settings.set("update_hash", remote_hash)
+            if manual:
+                QMessageBox.information(self, "Up to date", "You already have the latest version from GitHub.")
+            return
+
+        stored = self.settings.get("update_hash")
+        if manual:
+            answer = QMessageBox.question(
+                self, "Update available",
+                "A different version of PocketTerm is on GitHub.\n\nInstall it? Your current file is backed up "
+                "first (Config/update_backups) and PocketTerm can restart afterwards.")
+            if answer != QMessageBox.Yes:
+                return
+        elif not stored:
+            # First run with updates enabled: remember what GitHub has now, but never overwrite local code.
+            self.settings.set("update_hash", remote_hash)
+            log.info("Auto update baseline recorded; waiting for the next change on GitHub.")
+            return
+        elif remote_hash == stored:
+            return  # GitHub hasn't changed since the last update; leave any local edits alone
+
+        self._install_update(data, remote_hash)
+
+    def _install_update(self, data, remote_hash):
+        try:
+            backup = install_update(data)
+        except OSError as exc:
+            log.exception("Could not install the update")
+            QMessageBox.warning(self, "Update failed", f"Could not install the update:\n{exc}")
+            return
+        self.settings.set("update_hash", remote_hash)
+        log.info("Updated from GitHub. Backup: %s", backup)
+        answer = QMessageBox.question(
+            self, "PocketTerm updated",
+            f"PocketTerm was updated from GitHub.\nThe previous version is saved at:\n{backup}\n\n"
+            "Restart now to use the new version?")
+        if answer == QMessageBox.Yes:
+            self._restart_app()
+
+    def _restart_app(self):
+        script = Path(__file__).resolve()
+        args = [pythonw_exe(), str(script)] + sys.argv[1:]
+        code = f"import subprocess, time; time.sleep(4); subprocess.Popen({args!r}, cwd={str(script.parent)!r})"
+        try:
+            subprocess.Popen([python_exe(), "-c", code], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, close_fds=True,
+                             creationflags=(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP) if os.name == "nt" else 0)
+        except OSError as exc:
+            QMessageBox.warning(self, "Restart failed", f"Could not restart PocketTerm:\n{exc}\nRestart it manually.")
+            return
+        self._skip_close_confirm = True
+        self.close()
 
     # ---------- plugins: local manager ----------
 
@@ -4746,6 +4907,8 @@ class MainWindow(QMainWindow):
         self.hotkey_status = self._status_label(lay)
         self._check_row(lay, "confirm_close", "Ask for confirmation when closing while the terminal, VS Code, "
                         "a tool or the autoclicker is running")
+        self._check_row(lay, "auto_update", "Automatically download updates from GitHub (a backup is kept)")
+        self._button_row(lay, ("Check for updates now", self.check_updates_now))
         cl.addWidget(card)
 
         # ----- Folders -----
@@ -4868,7 +5031,8 @@ class MainWindow(QMainWindow):
         commands += [("Terminal: New tab", self.new_terminal_tab), ("VS Code: Open folder...", self.open_folder_in_vscode),
                      ("VS Code: Start / restart", self.restart_vscode), ("Autoclicker: Start / Stop", self.ac_toggle),
                      ("PocketLauncher: Start / Stop", self.pl_toggle), ("PocketVM: Start / Stop", self.vm_toggle),
-                     ("C++ Compiler: Start / Stop", self.cpp_toggle)]
+                     ("C++ Compiler: Start / Stop", self.cpp_toggle),
+                     ("Update: Check for updates now", self.check_updates_now)]
         for p in self._list_projects():
             commands.append((f"Project: Open in VS Code - {p.name}", lambda p=p: self._open_project(p)))
             commands.append((f"Project: Terminal here - {p.name}", lambda p=p: self.open_terminal_in(p)))
@@ -5367,7 +5531,8 @@ class MainWindow(QMainWindow):
             self.settings.data["window_size"] = [self.width(), self.height()]
         self.settings.save()
 
-        for timer in (self._nav_timer, self._drives_timer, self._ports_timer, self._dashboard_timer):
+        for timer in (self._nav_timer, self._drives_timer, self._ports_timer, self._dashboard_timer,
+                      self._update_timer):
             timer.stop()
         for rel in list(self._loaded_plugins):
             self._unload_plugin(rel)
