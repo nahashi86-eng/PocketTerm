@@ -107,6 +107,7 @@ PROCESS_MANAGER_FILE = SCRIPT_DIR / "ProcessManager.py"
 AUTOCLICKER_FILE = SCRIPT_DIR / "Autoclicker.py"
 POCKETLAUNCHER_FILE = SCRIPT_DIR / "PocketLauncher.py"
 POCKETVM_FILE = SCRIPT_DIR / "PocketVM.py"
+NETSCANNER_FILE = SCRIPT_DIR / "Netscanner.py"
 CPP_COMPILER_FILE = SCRIPT_DIR / "CppRunner.py"
 POCKETAI_FILE = SCRIPT_DIR / "PocketAi.py"
 
@@ -147,7 +148,10 @@ SCRIPT_TYPES = {".py": "Python script", ".bat": "Batch script", ".cmd": "Batch s
  PAGE_DIAGNOSTICS, PAGE_JAR_LAUNCHER, PAGE_POCKETLAUNCHER, PAGE_POCKETVM) = range(18)
 PAGE_REMOTE_ACCESS = 18
 PAGE_CPP = 19
-PAGE_COUNT = 20
+PAGE_NETSCANNER = 20
+PAGE_LOGS = 21
+PAGE_WORKSPACES = 22
+PAGE_COUNT = 23
 
 PLUGIN_REPO_API = "https://api.github.com/repos/nahashi86-eng/PocketTerm/git/trees/main?recursive=1"
 PLUGIN_RAW_BASE = "https://raw.githubusercontent.com/nahashi86-eng/PocketTerm/main/"
@@ -163,14 +167,15 @@ UPDATE_BACKUPS_KEEP = 5
 
 NAV_GROUPS = [
     ("Workspace", [("Dashboard", PAGE_DASHBOARD), ("Terminal View", PAGE_TERMINAL), ("VS Code", PAGE_VSCODE),
-                   ("Projects", PAGE_PROJECTS), ("Files", PAGE_FILES), ("Snippets", PAGE_SNIPPETS)]),
+                   ("Projects", PAGE_PROJECTS), ("Files", PAGE_FILES), ("Snippets", PAGE_SNIPPETS),
+                   ("Workspaces", PAGE_WORKSPACES)]),
     ("Automation", [("Scripts", PAGE_SCRIPTS), ("Tools", PAGE_TOOLS), ("Autoclicker", PAGE_AUTOCLICKER),
                     ("PocketLauncher", PAGE_POCKETLAUNCHER), ("PocketVM", PAGE_POCKETVM),
                     ("C++ Compiler", PAGE_CPP)]),
     ("Extensions", [("Plugins", PAGE_PLUGINS)]),
-    ("Network", [("Remote Access", PAGE_REMOTE_ACCESS)]),
+    ("Network", [("Remote Access", PAGE_REMOTE_ACCESS), ("Net Scanner", PAGE_NETSCANNER)]),
     ("System", [("Drives", PAGE_DRIVES), ("Ports", PAGE_PORTS), ("Diagnostics", PAGE_DIAGNOSTICS),
-                ("JAR Launcher", PAGE_JAR_LAUNCHER)]),
+                ("JAR Launcher", PAGE_JAR_LAUNCHER), ("Logs", PAGE_LOGS)]),
     ("AI & Web", [("PocketAi", PAGE_WEB)]),
 ]
 
@@ -233,6 +238,7 @@ class Settings:
         "snippets": [{"name": "Git status", "command": "git status"}],
         "enabled_plugins": [],                              # only these plugins are executed
         "auto_update": True, "update_hash": "",  # GitHub auto update
+        "workspaces": [],                                   # saved Workspaces
     }
     STR_LISTS = ("pinned_projects", "recent_projects", "nav_collapsed", "enabled_plugins")
     PATH_KEYS = ("launcher_path", "bash_path", "git_path", "vscode_exe", "firefox_path")
@@ -246,6 +252,18 @@ class Settings:
     @classmethod
     def _clean(cls, key, value, default):
         """Return a sanitised copy of value, or None if it can't be used."""
+        if key == "workspaces":
+            if not isinstance(value, list):
+                return None
+            out = []
+            for w in value:
+                if isinstance(w, dict) and isinstance(w.get("name"), str) and isinstance(w.get("folder"), str):
+                    out.append({"name": w["name"], "folder": w["folder"],
+                                "terminals": w["terminals"] if _is_int(w.get("terminals")) else 1,
+                                "vscode": bool(w.get("vscode", True)),
+                                "scripts": [s for s in w["scripts"] if isinstance(s, str)]
+                                if isinstance(w.get("scripts"), list) else []})
+            return out
         if isinstance(default, bool):
             return value if isinstance(value, bool) else None
         if isinstance(default, int):
@@ -548,8 +566,8 @@ def python_exe():
 def pythonw_exe():
     """pythonw.exe (no console window) when available, so a script's own GUI window can be embedded."""
     exe = Path(sys.executable)
-    if exe.name.lower() == "python.exe" and exe.with_name("pythonw.exe").is_file():
-        return str(exe.with_name("pythonw.exe"))
+    if exe.name.lower() != "pythonw.exe" and exe.with_name("pythonw.exe").is_file():
+        return str(exe.with_name("pythonw.exe"))  # also covers python3.exe, python3.12.exe, venv stubs
     return str(exe)
 
 
@@ -588,10 +606,31 @@ def vscode_launch_plan(settings, target=None):
     return [str(bash), "-l", "-i", "-c", line], kwargs, f"Runs '{cmd}' through Git Bash: {bash}"
 
 
+GUI_IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+(?:PySide\d|PyQt\d|tkinter|wx|kivy|pygame)", re.M)
+
+
+def is_gui_script(path):
+    """True for a .py/.pyw file that imports a GUI toolkit (it needs no console window)."""
+    if path.suffix.lower() == ".pyw":
+        return True
+    try:
+        return bool(GUI_IMPORT_RE.search(path.read_text(encoding="utf-8", errors="ignore")[:30000]))
+    except OSError:
+        return False
+
+
 def run_script(path, settings, args_text=""):
-    """Run a script in its own console window. Returns an error string or None."""
+    """Run a script in its own console window (GUI Python scripts run with no console). Returns an error or None."""
     ext, env = path.suffix.lower(), None
     extra = f" {args_text.strip()}" if args_text.strip() else ""
+    if os.name == "nt" and ext in (".py", ".pyw") and is_gui_script(path):
+        try:
+            subprocess.Popen([pythonw_exe(), str(path)] + split_args(args_text), cwd=str(path.parent),
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)
+        except OSError as e:
+            return f"Failed to start: {e}"
+        return None
     if ext in (".bat", ".cmd"):
         cmd = f'cmd.exe /k ""{path}"{extra}"'
     elif ext == ".py":
@@ -1136,10 +1175,14 @@ class EmbeddedWindow(QWidget):
     IDLE_MESSAGE = "Nothing is running here yet."
 
     GWL_STYLE = -16
+    GWL_EXSTYLE = -20
     WS_POPUP, WS_CHILD, WS_VISIBLE = 0x80000000, 0x40000000, 0x10000000
     WS_CAPTION, WS_SYSMENU, WS_THICKFRAME = 0x00C00000, 0x00080000, 0x00040000
     WS_MINIMIZEBOX, WS_MAXIMIZEBOX = 0x00020000, 0x00010000
-    SWP_NOZORDER, SWP_FRAMECHANGED, SWP_SHOWWINDOW = 0x0004, 0x0020, 0x0040
+    WS_CLIPCHILDREN, WS_CLIPSIBLINGS = 0x02000000, 0x04000000
+    WS_EX_CLIENTEDGE, WS_EX_WINDOWEDGE, WS_EX_APPWINDOW = 0x00000200, 0x00000100, 0x00040000
+    SWP_NOZORDER, SWP_FRAMECHANGED, SWP_SHOWWINDOW, SWP_NOACTIVATE = 0x0004, 0x0020, 0x0040, 0x0010
+    RDW_INVALIDATE, RDW_ERASE, RDW_ALLCHILDREN, RDW_FRAME = 0x0001, 0x0004, 0x0080, 0x0400
     WM_CLOSE, WM_CHAR = 0x0010, 0x0102
 
     _claimed = set()  # windows already embedded by any EmbeddedWindow, so two tabs never grab the same one
@@ -1169,6 +1212,7 @@ class EmbeddedWindow(QWidget):
         self.poll_timer = timer(250, self.find_window)
         self.timeout_timer = timer(0, self.embedding_timeout, True)
         self.watch_timer = timer(1000, self._check_session)  # detects the program being closed
+        self.settle_timer = timer(80, self.resize_embedded_window, True)  # one last resize after dragging stops
 
         self.status_label = QLabel(self.IDLE_MESSAGE)
         self.status_label.setAlignment(Qt.AlignCenter)
@@ -1225,6 +1269,7 @@ class EmbeddedWindow(QWidget):
             (u, "GetWindowLongPtrW", [W.HWND, T.c_int], T.c_ssize_t),
             (u, "SetWindowLongPtrW", [W.HWND, T.c_int, T.c_ssize_t], T.c_ssize_t),
             (u, "SetWindowPos", [W.HWND, W.HWND, T.c_int, T.c_int, T.c_int, T.c_int, W.UINT], W.BOOL),
+            (u, "RedrawWindow", [W.HWND, T.c_void_p, T.c_void_p, W.UINT], W.BOOL),
             (u, "PostMessageW", [W.HWND, W.UINT, W.WPARAM, W.LPARAM], W.BOOL),
             (u, "SetFocus", [W.HWND], W.HWND),
             (u, "GetWindowThreadProcessId", [W.HWND, T.POINTER(W.DWORD)], W.DWORD),
@@ -1336,7 +1381,7 @@ class EmbeddedWindow(QWidget):
         self.hwnd = None
 
     def stop(self, message=None):
-        for t in (self.poll_timer, self.timeout_timer, self.watch_timer):
+        for t in (self.poll_timer, self.timeout_timer, self.watch_timer, self.settle_timer):
             t.stop()
         if self._alive():
             self.user32.PostMessageW(wintypes.HWND(self.hwnd), self.WM_CLOSE, 0, 0)
@@ -1393,14 +1438,24 @@ class EmbeddedWindow(QWidget):
     def embed_window(self):
         if not self.hwnd:
             return
+        u = self.user32
         hwnd_w = wintypes.HWND(self.hwnd)
-        self.user32.SetParent(hwnd_w, wintypes.HWND(int(self.winId())))
-        style = self.user32.GetWindowLongPtrW(hwnd_w, self.GWL_STYLE)
+        host = wintypes.HWND(int(self.winId()))
+
+        # The host must clip its children, or Qt repaints its background over the embedded app.
+        host_style = u.GetWindowLongPtrW(host, self.GWL_STYLE)
+        u.SetWindowLongPtrW(host, self.GWL_STYLE, host_style | self.WS_CLIPCHILDREN | self.WS_CLIPSIBLINGS)
+
+        u.SetParent(hwnd_w, host)
+        style = u.GetWindowLongPtrW(hwnd_w, self.GWL_STYLE)
         style &= ~(self.WS_POPUP | self.WS_CAPTION | self.WS_SYSMENU | self.WS_THICKFRAME |
                    self.WS_MINIMIZEBOX | self.WS_MAXIMIZEBOX)
-        style |= self.WS_CHILD | self.WS_VISIBLE
-        self.user32.SetWindowLongPtrW(hwnd_w, self.GWL_STYLE, style)
-        self.resize_embedded_window()
+        style |= self.WS_CHILD | self.WS_VISIBLE | self.WS_CLIPSIBLINGS | self.WS_CLIPCHILDREN
+        u.SetWindowLongPtrW(hwnd_w, self.GWL_STYLE, style)
+        ex = u.GetWindowLongPtrW(hwnd_w, self.GWL_EXSTYLE)  # no leftover 3D borders / taskbar button
+        u.SetWindowLongPtrW(hwnd_w, self.GWL_EXSTYLE,
+                            ex & ~(self.WS_EX_CLIENTEDGE | self.WS_EX_WINDOWEDGE | self.WS_EX_APPWINDOW))
+        self.resize_embedded_window(frame_changed=True)
         self.focus_window()
 
     def _attach_input(self):
@@ -1442,16 +1497,25 @@ class EmbeddedWindow(QWidget):
         super().focusInEvent(event)
         self.focus_soon()
 
-    def resize_embedded_window(self):
-        if self._alive():
-            dpr = self.devicePixelRatioF()
-            self.user32.SetWindowPos(wintypes.HWND(self.hwnd), None, 0, 0, int(self.width() * dpr),
-                                     int(self.height() * dpr),
-                                     self.SWP_NOZORDER | self.SWP_FRAMECHANGED | self.SWP_SHOWWINDOW)
+    def resize_embedded_window(self, frame_changed=False):
+        if not self._alive():
+            return
+        dpr = self.devicePixelRatioF()
+        w, h = max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr))
+        flags = self.SWP_NOZORDER | self.SWP_NOACTIVATE | self.SWP_SHOWWINDOW
+        if frame_changed:  # only needed once, right after the style change
+            flags |= self.SWP_FRAMECHANGED
+        hw = wintypes.HWND(self.hwnd)
+        self.user32.SetWindowPos(hw, None, 0, 0, w, h, flags)
+        # Apps with a minimum size ignore the request and stick out; the host clips them, and this
+        # repaint removes any stale pixels left behind.
+        self.user32.RedrawWindow(hw, None, None,
+                                 self.RDW_INVALIDATE | self.RDW_ERASE | self.RDW_ALLCHILDREN | self.RDW_FRAME)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.resize_embedded_window()
+        self.settle_timer.start()  # resize once more after the dragging stops
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1592,7 +1656,9 @@ class EmbeddedTool(EmbeddedWindow):
 
 class EmbeddedScript(EmbeddedWindow):
     """Runs one of PocketTerm's own .py files and embeds the window that script opens.
-    The window is recognised by process id (the script's process or any of its children)."""
+    The window is recognised by process id (the script's process or any of its children).
+    If the script crashes before opening a window, its error output is shown instead of
+    waiting for the timeout."""
 
     def __init__(self, settings, name, script_file, parent=None):
         super().__init__(settings, parent)
@@ -1603,17 +1669,58 @@ class EmbeddedScript(EmbeddedWindow):
         self.TIMEOUT_MESSAGE = (f"{self.script.name} was started, but it didn't open a window to embed.\n"
                                 "Scripts without a GUI window (or that exited right away) can't be shown here.")
         self.toggle_btn = None
+        self._err_path = None
+        self._err_file = None
         self.set_message(self.IDLE_MESSAGE)
 
     running = EmbeddedWindow.is_running
+
+    def _close_err(self):
+        if self._err_file is not None:
+            try:
+                self._err_file.close()
+            except OSError:
+                pass
+            self._err_file = None
 
     def build_launch(self, target=None):
         if not self.script.is_file():
             return None, None, f"{self.script.name} not found. Put it here:\n{self.script}"
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
+        self._close_err()
+        self._err_path = APP_DIR / "Temp" / f"{self.script.stem}_error.log"
+        err_out = subprocess.DEVNULL
+        try:
+            self._err_path.parent.mkdir(parents=True, exist_ok=True)
+            self._err_file = open(self._err_path, "wb")
+            err_out = self._err_file
+        except OSError:
+            self._err_file = None
         return ([pythonw_exe(), str(self.script)],
                 {"cwd": str(SCRIPT_DIR), "env": env, "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
-                 "stderr": subprocess.DEVNULL, "creationflags": CREATE_NEW_PROCESS_GROUP}, "")
+                 "stderr": err_out,
+                 # CREATE_NO_WINDOW: even if only python.exe is available, no console window is shown
+                 "creationflags": CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW}, "")
+
+    def on_poll(self):
+        """If the script died before opening a window, show why instead of waiting for the timeout."""
+        proc = self.process
+        if proc is None or proc.poll() in (None, 0):
+            return False
+        self.poll_timer.stop()
+        self.timeout_timer.stop()
+        self.launcher_started = False
+        self.process = None
+        self._close_err()
+        tail = ""
+        try:
+            if self._err_path is not None:
+                tail = self._err_path.read_text(encoding="utf-8", errors="replace").strip()[-800:]
+        except OSError:
+            pass
+        self.set_message(f"{self.script.name} exited with an error (code {proc.returncode}).\n\n"
+                         + (tail or "No error output was captured."))
+        return True
 
     def _family_pids(self):
         proc = self.process
@@ -1786,6 +1893,12 @@ class PocketTermPluginAPI:
         self._window._plugin_actions.setdefault(self.plugin_id, []).append(
             {"name": str(name)[:80], "callback": callback, "description": str(description)[:240]})
         self._window._render_plugin_actions()
+
+    def add_command(self, name, callback):
+        """Add an entry to the Ctrl+K command palette."""
+        if not callable(callback):
+            raise TypeError("Plugin command callback must be callable")
+        self._window._plugin_commands.setdefault(self.plugin_id, []).append((str(name)[:80], callback))
 
     def notify(self, message, title="PocketTerm plugin"):
         QMessageBox.information(self._window, str(title)[:100], str(message)[:2000])
@@ -1985,7 +2098,511 @@ def install_update(data):
     return backup
 
 
-class MainWindow(QMainWindow):
+# ============================================================
+# EXTRAS: git actions, file operations, workspaces, logs, plugin commands, rollback
+# ============================================================
+
+MAIN_FILE = Path(__file__).resolve()
+LOG_TAIL_BYTES = 300_000
+LOG_MAX_LINES = 1500
+_LOG_HEAD = re.compile(r"^\d{4}-\d{2}-\d{2} [\d:,]+ (\w+) ")
+_BAD_NAME_CHARS = '<>:"/\\|?*'
+
+
+def _valid_name(name):
+    return bool(name) and name not in (".", "..") and not any(c in name for c in _BAD_NAME_CHARS)
+
+
+class ExtrasMixin:
+    # ================= Git actions (Projects page) =================
+
+    def _add_git_buttons(self, layout):
+        self._button_row(
+            layout,
+            ("Fetch", lambda: self.git_action("Fetch", ["fetch", "--all", "--prune"])),
+            ("Pull", lambda: self.git_action("Pull", ["pull", "--ff-only"])),
+            ("Push", lambda: self.git_action("Push", ["push"])),
+            ("Switch Branch...", self.git_switch_branch),
+            ("Stash", lambda: self.git_action("Stash", ["stash", "push", "-u"])),
+            ("Stash Pop", lambda: self.git_action("Stash pop", ["stash", "pop"])),
+            ("Pull All", self.git_pull_all))
+
+    def _git_ready(self):
+        git = find_git(self.settings)
+        if not git:
+            self.projects_status.setText("Git not found. Set its path in Settings.")
+            return None
+        if self.terminals.any_launching():
+            self.projects_status.setText("A terminal is still starting. Try again in a few seconds.")
+            return None
+        return git
+
+    def _git_run(self, git, path, args, timeout=120):
+        env = git_env(self.settings)
+        env["GIT_TERMINAL_PROMPT"] = "0"  # fail instead of hanging on a credentials prompt
+        try:
+            r = subprocess.run([str(git), "-c", "safe.directory=*", "-C", str(path), *args],
+                               capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               timeout=timeout, stdin=subprocess.DEVNULL, env=env,
+                               creationflags=CREATE_NO_WINDOW)
+        except subprocess.TimeoutExpired:
+            return 1, "timed out"
+        except OSError as e:
+            return 1, str(e)
+        return r.returncode, (r.stdout + "\n" + r.stderr).strip()
+
+    def git_action(self, label, args):
+        path = self._selected_project()
+        git = self._git_ready() if path else None
+        if not path or not git:
+            return
+        if not (path / ".git").exists():
+            self.projects_status.setText(f"{path.name} is not a git repository.")
+            return
+        self.projects_status.setStyleSheet("")
+        self.projects_status.setText(f"{label}: {path.name} ...")
+
+        def work():
+            code, out = self._git_run(git, path, args)
+            lines = [ln for ln in out.splitlines() if ln.strip()]
+            self.task_done.emit("git", code == 0, f"{label} {path.name}: " + (lines[-1] if lines else "done"))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def git_switch_branch(self):
+        path = self._selected_project()
+        git = self._git_ready() if path else None
+        if not path or not git:
+            return
+        code, out = self._git_run(git, path, ["branch", "--format=%(refname:short)"], 10)
+        branches = [b.strip() for b in out.splitlines() if b.strip() and not b.strip().startswith("(")]
+        if code or not branches:
+            self.projects_status.setText(f"Couldn't list branches for {path.name}.")
+            return
+        name, ok = QInputDialog.getItem(self, "Switch branch", f"Branch for {path.name}:", branches, 0, False)
+        if ok and name:
+            self.git_action(f"Switch to {name}", ["checkout", name])
+
+    def git_pull_all(self):
+        git = self._git_ready()
+        if not git:
+            return
+        repos = [p for p in self._project_paths if (p / ".git").exists()]
+        if not repos:
+            self.projects_status.setText("No git repositories in the Projects folder.")
+            return
+        self.projects_status.setStyleSheet("")
+        self.projects_status.setText(f"Pulling {len(repos)} repositories ...")
+
+        def work():
+            failed = []
+            for p in repos:
+                code, _out = self._git_run(git, p, ["pull", "--ff-only"])
+                if code:
+                    failed.append(p.name)
+            msg = f"Pull all: {len(repos) - len(failed)} of {len(repos)} updated"
+            if failed:
+                msg += f". Failed: {', '.join(failed)}"
+            self.task_done.emit("git", not failed, msg)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def extras_task_done(self, kind, ok, message):
+        if kind == "git":
+            self._set_status(self.projects_status, ok, message)
+            self.refresh_projects()
+
+    # ================= File operations (Files page) =================
+
+    def _setup_file_ops(self, layout):
+        self.files_status = self._status_label(layout)
+        self.file_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_tree.customContextMenuRequested.connect(self._file_menu)
+        for key, slot in (("Delete", lambda: self._file_trash(self._file_selected())),
+                          ("F2", lambda: self._file_rename(self._file_selected()))):
+            sc = QShortcut(QKeySequence(key), self.file_tree)
+            sc.setContext(Qt.WidgetShortcut)
+            sc.activated.connect(slot)
+
+    def _file_say(self, ok, text):
+        self._set_status(self.files_status, ok, text)
+
+    def _file_current_dir(self):
+        p = Path(self.file_path_edit.text().strip() or str(PORTABLE_ROOT))
+        return p if p.is_dir() else PORTABLE_ROOT
+
+    def _file_selected(self):
+        idx = self.file_tree.currentIndex()
+        return Path(self.file_model.filePath(idx)) if idx.isValid() else None
+
+    def _file_menu(self, pos):
+        idx = self.file_tree.indexAt(pos)
+        if idx.isValid():
+            self.file_tree.setCurrentIndex(idx)
+        target = self._file_selected() if idx.isValid() else None
+        folder = (target if target.is_dir() else target.parent) if target else self._file_current_dir()
+        menu = QMenu(self)
+
+        def add(text, fn, enabled=True):
+            act = menu.addAction(text)
+            act.setEnabled(enabled)
+            act.triggered.connect(lambda _=False, f=fn: f())
+
+        has = target is not None
+        add("Open", self._open_selected_file, has)
+        add("Open in VS Code", lambda: self.restart_vscode(target), has)
+        add("Open terminal here", lambda: self.open_terminal_in(folder))
+        menu.addSeparator()
+        add("New folder...", lambda: self._file_new(folder, True))
+        add("New file...", lambda: self._file_new(folder, False))
+        menu.addSeparator()
+        add("Rename...  (F2)", lambda: self._file_rename(target), has)
+        add("Copy to...", lambda: self._file_transfer(target, False), has)
+        add("Move to...", lambda: self._file_transfer(target, True), has)
+        add("Delete (move to trash)  (Del)", lambda: self._file_trash(target), has)
+        menu.addSeparator()
+        add("Copy path", lambda: QApplication.clipboard().setText(str(target)), has)
+        add("Open trash folder", lambda: open_path(APP_DIR / "Temp" / "Trash"))
+        menu.exec(self.file_tree.viewport().mapToGlobal(pos))
+
+    def _file_new(self, folder, is_dir):
+        name, ok = QInputDialog.getText(self, "New folder" if is_dir else "New file", f"Name (in {folder.name}):")
+        name = name.strip()
+        if not ok or not name:
+            return
+        if not _valid_name(name):
+            self._file_say(False, "That isn't a valid name.")
+            return
+        dest = folder / name
+        if dest.exists():
+            self._file_say(False, f"'{name}' already exists.")
+            return
+        try:
+            dest.mkdir() if is_dir else dest.touch()
+        except OSError as e:
+            self._file_say(False, f"Couldn't create it: {e}")
+            return
+        self._file_say(True, f"Created {dest}")
+
+    def _file_rename(self, target):
+        if target is None:
+            return
+        name, ok = QInputDialog.getText(self, "Rename", "New name:", text=target.name)
+        name = name.strip()
+        if not ok or not name or name == target.name:
+            return
+        if not _valid_name(name):
+            self._file_say(False, "That isn't a valid name.")
+            return
+        dest = target.with_name(name)
+        if dest.exists():
+            self._file_say(False, f"'{name}' already exists.")
+            return
+        try:
+            target.rename(dest)
+        except OSError as e:
+            self._file_say(False, f"Couldn't rename: {e}")
+            return
+        self._file_say(True, f"Renamed to {name}")
+
+    def _file_transfer(self, target, move):
+        if target is None:
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Choose destination folder", str(target.parent))
+        if not folder:
+            return
+        dest = Path(folder) / target.name
+        if dest.exists():
+            self._file_say(False, f"{dest} already exists.")
+            return
+        if target.is_dir() and (dest == target or target in dest.parents):
+            self._file_say(False, "A folder can't be copied or moved into itself.")
+            return
+        try:
+            if move:
+                shutil.move(str(target), str(dest))
+            elif target.is_dir():
+                shutil.copytree(target, dest)
+            else:
+                shutil.copy2(target, dest)
+        except (OSError, shutil.Error) as e:
+            self._file_say(False, f"{'Move' if move else 'Copy'} failed: {e}")
+            return
+        self._file_say(True, f"{'Moved' if move else 'Copied'} {target.name} to {folder}")
+
+    def _file_trash(self, target):
+        if target is None:
+            return
+        if QMessageBox.question(self, "Delete", f"Move '{target.name}' to the PocketTerm trash folder?\n\n"
+                                "You can restore it from Temp/Trash later.") != QMessageBox.Yes:
+            return
+        trash = APP_DIR / "Temp" / "Trash"
+        dest = trash / f"{time.strftime('%Y%m%d_%H%M%S')}_{target.name}"
+        try:
+            trash.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(target), str(dest))
+        except (OSError, shutil.Error) as e:
+            self._file_say(False, f"Couldn't delete: {e}")
+            return
+        self._file_say(True, f"Moved {target.name} to the trash folder.")
+
+    # ================= Workspaces =================
+
+    def _build_workspaces_page(self):
+        page, layout = self._page(
+            "Workspaces",
+            "Save a project with its terminal tabs, VS Code and scripts, then launch everything with one click.",
+            (self._button("New Workspace...", self.workspace_new, "Primary"),), gap=16)
+        self.workspace_list = self._list_widget(self.workspace_launch)
+        layout.addWidget(self.workspace_list, stretch=1)
+        self.workspaces_status = self._status_label(layout)
+        self._button_row(layout, ("Launch", self.workspace_launch, "Primary"), ("Edit...", self.workspace_edit),
+                         ("Remove", self.workspace_remove, "Danger"))
+        self._render_workspaces()
+        return page
+
+    def _workspaces(self):
+        return [w for w in self.settings.get("workspaces") if isinstance(w, dict)]
+
+    def _render_workspaces(self):
+        keep = self.workspace_list.currentRow()
+        self.workspace_list.clear()
+        for i, w in enumerate(self._workspaces()):
+            item = QListWidgetItem(w["name"])
+            bits = [f"{w['terminals']} term"]
+            if w["vscode"]:
+                bits.append("VS Code")
+            if w["scripts"]:
+                bits.append(f"{len(w['scripts'])} script" + ("s" if len(w["scripts"]) != 1 else ""))
+            item.setData(ROLE_TITLE, w["name"])
+            item.setData(ROLE_SUB, w["folder"])
+            item.setData(ROLE_BADGE, " · ".join(bits))
+            item.setData(ROLE_KIND, "info")
+            item.setData(ROLE_PATH, i)
+            self.workspace_list.addItem(item)
+        if self.workspace_list.count():
+            self.workspace_list.setCurrentRow(max(0, min(keep, self.workspace_list.count() - 1)))
+        else:
+            self.workspaces_status.setText("No workspaces yet. Use New Workspace... to save one.")
+
+    def _selected_workspace(self):
+        row, items = self.workspace_list.currentRow(), self._workspaces()
+        if 0 <= row < len(items):
+            return row, items
+        self.workspaces_status.setText("Select a workspace first.")
+        return None
+
+    def _workspace_dialog(self, existing=None):
+        d = existing or {"name": "", "folder": str(APP_DIR / "Projects"), "terminals": 1, "vscode": True,
+                         "scripts": []}
+        start = resolve_configured_path(d["folder"]) or APP_DIR / "Projects"
+        name, ok = QInputDialog.getText(self, "Workspace", "Name:", text=d["name"])
+        if not ok or not name.strip():
+            return None
+        folder = QFileDialog.getExistingDirectory(self, "Project folder", str(start))
+        if not folder:
+            return None
+        count, ok = QInputDialog.getInt(self, "Workspace", "Terminal tabs to open:", int(d["terminals"]), 0, 6)
+        if not ok:
+            return None
+        vscode = QMessageBox.question(self, "Workspace", "Open the folder in VS Code?") == QMessageBox.Yes
+        scripts, ok = QInputDialog.getText(
+            self, "Workspace", "Scripts to run (file names from your Scripts folder, comma separated, optional):",
+            text=", ".join(d["scripts"]))
+        if not ok:
+            return None
+        return {"name": name.strip(), "folder": portable_setting_path(folder), "terminals": count,
+                "vscode": vscode, "scripts": [s.strip() for s in scripts.split(",") if s.strip()]}
+
+    def workspace_new(self):
+        w = self._workspace_dialog()
+        if w:
+            self.settings.set("workspaces", self._workspaces() + [w])
+            self._render_workspaces()
+            self.workspace_list.setCurrentRow(self.workspace_list.count() - 1)
+
+    def workspace_edit(self):
+        sel = self._selected_workspace()
+        if not sel:
+            return
+        row, items = sel
+        w = self._workspace_dialog(items[row])
+        if w:
+            items[row] = w
+            self.settings.set("workspaces", items)
+            self._render_workspaces()
+
+    def workspace_remove(self):
+        sel = self._selected_workspace()
+        if sel:
+            row, items = sel
+            del items[row]
+            self.settings.set("workspaces", items)
+            self._render_workspaces()
+
+    def workspace_launch(self):
+        sel = self._selected_workspace()
+        if not sel:
+            return
+        w = sel[1][sel[0]]
+        folder = resolve_configured_path(w["folder"])
+        if not folder or not folder.is_dir():
+            self.workspaces_status.setText(f"Folder not found: {w['folder']}")
+            return
+        self._record_recent(folder)
+        self.show_page(PAGE_TERMINAL)
+        for i in range(w["terminals"]):  # staggered: the Git launcher dislikes simultaneous starts
+            title = w["name"] if i == 0 else f"{w['name']} {i + 1}"
+            QTimer.singleShot(i * 1500, lambda t=title: self.terminals.add_terminal(
+                start=True, target=folder, title=t))
+        if w["vscode"]:
+            self._vscode_autostarted = True
+            QTimer.singleShot(200, lambda: self.vscode.restart(folder))
+        missing = []
+        for j, script in enumerate(w["scripts"]):
+            path = APP_DIR / "Scripts" / script
+            if path.is_file():
+                QTimer.singleShot(2500 + j * 800, lambda p=path: self._run_script_path(p))
+            else:
+                missing.append(script)
+        note = f" Missing scripts: {', '.join(missing)}." if missing else ""
+        self.workspaces_status.setText(f"Launched {w['name']}.{note}")
+
+    # ================= Logs page =================
+
+    def _build_logs_page(self):
+        page, layout = self._page(
+            "Logs", f"Live view of {LOG_FILE.name}. Filter by level or text.",
+            (self._button("Refresh", self.refresh_logs, "CornerButton"),), gap=12)
+        row = QHBoxLayout()
+        self.log_level = QComboBox()
+        self.log_level.addItems(["All", "INFO", "WARNING", "ERROR"])
+        self.log_level.currentTextChanged.connect(lambda _t: self.refresh_logs())
+        row.addWidget(self.log_level)
+        self.log_filter = QLineEdit()
+        self.log_filter.setPlaceholderText("Filter text...")
+        self.log_filter.setClearButtonEnabled(True)
+        self.log_filter.textChanged.connect(lambda _t: self.refresh_logs())
+        row.addWidget(self.log_filter, stretch=1)
+        self.log_auto = QCheckBox("Auto-refresh")
+        self.log_auto.setChecked(True)
+        row.addWidget(self.log_auto)
+        layout.addLayout(row)
+        self.logs_view = QPlainTextEdit()
+        self.logs_view.setObjectName("Log")
+        self.logs_view.setReadOnly(True)
+        self.logs_view.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.logs_view.setMaximumBlockCount(LOG_MAX_LINES + 50)
+        layout.addWidget(self.logs_view, stretch=1)
+        self.logs_status = self._status_label(layout)
+        self._button_row(layout, ("Open log file", lambda: self._open_path_in_system(LOG_FILE)),
+                         ("Copy all", lambda: QApplication.clipboard().setText(self.logs_view.toPlainText())),
+                         ("Clear log", self.clear_log, "Danger"))
+        self._logs_sig = None
+        self._logs_timer = QTimer(self)
+        self._logs_timer.setInterval(2000)
+        self._logs_timer.timeout.connect(self._logs_tick)
+        self._logs_timer.start()
+        return page
+
+    def _logs_tick(self):
+        if self.stacked_widget.currentIndex() == PAGE_LOGS and self.isVisible() and self.log_auto.isChecked():
+            self.refresh_logs()
+
+    def refresh_logs(self):
+        try:
+            st = LOG_FILE.stat()
+            size = st.st_size
+            with open(LOG_FILE, "rb") as f:
+                if size > LOG_TAIL_BYTES:
+                    f.seek(size - LOG_TAIL_BYTES)
+                text = f.read().decode("utf-8", errors="replace")
+        except FileNotFoundError:
+            size, st, text = 0, None, ""
+        except OSError as e:
+            self.logs_status.setText(f"Couldn't read the log: {e}")
+            return
+        level, query = self.log_level.currentText(), self.log_filter.text().strip().lower()
+        sig = (size, st.st_mtime_ns if st else 0, level, query)
+        if sig == self._logs_sig:
+            return
+        self._logs_sig = sig
+        lines = text.splitlines()
+        if size > LOG_TAIL_BYTES and lines:
+            lines = lines[1:]  # first line is probably cut in half
+        shown, keep, cur = [], True, "INFO"
+        for ln in lines:
+            m = _LOG_HEAD.match(ln)
+            if m:  # a new record; continuation lines (tracebacks) inherit its level
+                cur = m.group(1).upper()
+                keep = level == "All" or cur == level
+            if keep and (not query or query in ln.lower()):
+                shown.append((cur, ln))
+        shown = shown[-LOG_MAX_LINES:]
+        self.logs_view.setUpdatesEnabled(False)
+        self.logs_view.clear()
+        colors = {"ERROR": ERR_COLOR, "CRITICAL": ERR_COLOR, "WARNING": WARN_COLOR}
+        for lvl, ln in shown:
+            append_text(self.logs_view, ln + "\n", colors.get(lvl, LOG_COLOR))
+        self.logs_view.setUpdatesEnabled(True)
+        self.logs_status.setStyleSheet("")
+        self.logs_status.setText(f"{len(shown)} line(s) shown  ·  {format_size(size)}  ·  {LOG_FILE}")
+
+    def clear_log(self):
+        if QMessageBox.question(self, "Clear log", "Erase the PocketTerm log file?") != QMessageBox.Yes:
+            return
+        try:
+            open(LOG_FILE, "w", encoding="utf-8").close()
+        except OSError as e:
+            self._set_status(self.logs_status, False, f"Couldn't clear the log: {e}")
+            return
+        self._logs_sig = None
+        self.refresh_logs()
+
+    # ================= Plugin commands in Ctrl+K =================
+
+    def _plugin_command_items(self):
+        items = []
+        for cmds in list(self._plugin_commands.values()):
+            for name, callback in cmds:
+                items.append((f"Plugin: {name}", callback))
+        return items
+
+    # ================= Update rollback =================
+
+    def rollback_update(self):
+        backup_dir = APP_DIR / "Config" / "update_backups"
+        pattern = f"{MAIN_FILE.stem}_*{MAIN_FILE.suffix}"
+        files = sorted(backup_dir.glob(pattern), reverse=True) if backup_dir.is_dir() else []
+        if not files:
+            QMessageBox.information(self, "Roll back", "No update backups were found yet.")
+            return
+        labels = [f"{f.name}  ({format_size(f.stat().st_size)})" for f in files]
+        choice, ok = QInputDialog.getItem(self, "Roll back update", "Restore which backup?", labels, 0, False)
+        if not ok:
+            return
+        chosen = files[labels.index(choice)]
+        if QMessageBox.question(self, "Roll back update",
+                                f"Replace the running script with:\n{chosen.name}\n\nThe current version is "
+                                "backed up first. PocketTerm can restart afterwards.") != QMessageBox.Yes:
+            return
+        try:
+            data = chosen.read_bytes()
+            validate_update(data)
+            safety = backup_dir / f"{MAIN_FILE.stem}_{time.strftime('%Y%m%d_%H%M%S')}_pre_rollback{MAIN_FILE.suffix}"
+            shutil.copy2(MAIN_FILE, safety)
+            tmp = MAIN_FILE.with_name(MAIN_FILE.name + ".update")
+            tmp.write_bytes(data)
+            os.replace(tmp, MAIN_FILE)
+        except (OSError, ValueError) as e:
+            QMessageBox.warning(self, "Roll back failed", str(e))
+            return
+        log.info("Rolled back to %s", chosen)
+        if QMessageBox.question(self, "Rolled back", "Restored. Restart PocketTerm now?") == QMessageBox.Yes:
+            self._restart_app()
+
+
+class MainWindow(ExtrasMixin, QMainWindow):
     # Emitted from background threads, handled on the UI thread.
     remote_devices_ready = Signal(object)
     remote_result_ready = Signal(str)
@@ -2036,6 +2653,7 @@ class MainWindow(QMainWindow):
         self._plugin_entries, self._plugin_preview_path = {}, None
         self._plugins_busy = False
         self._loaded_plugins, self._plugin_actions = {}, {}
+        self._plugin_commands = {}
         self.remote_devices = {}
         self.remote_selected = None
         self.remote_token_edit = None
@@ -2043,7 +2661,7 @@ class MainWindow(QMainWindow):
         self.remote_device_combo = None
         self.remote_output = None
         self.remote_status = None
-        self._script_widgets = []   # embedded .py tabs (Autoclicker, PocketLauncher, PocketVM, C++, PocketAi)
+        self._script_widgets = []   # embedded .py tabs (Autoclicker, PocketLauncher, PocketVM, C++, Net Scanner, PocketAi)
         self.ai_tabs = None
         self._ai_timer = QTimer(self)
         self._ai_timer.setInterval(1000)
@@ -2096,7 +2714,8 @@ class MainWindow(QMainWindow):
             PAGE_DIAGNOSTICS: self._build_diagnostics_page, PAGE_JAR_LAUNCHER: self._build_jar_launcher_page,
             PAGE_POCKETLAUNCHER: self._build_pocketlauncher_page, PAGE_POCKETVM: self._build_pocketvm_page,
             PAGE_REMOTE_ACCESS: self._build_remote_access_page,
-            PAGE_CPP: self._build_cpp_page,
+            PAGE_CPP: self._build_cpp_page, PAGE_NETSCANNER: self._build_netscanner_page,
+            PAGE_LOGS: self._build_logs_page, PAGE_WORKSPACES: self._build_workspaces_page,
         }
         for i in range(PAGE_COUNT):
             self.stacked_widget.addWidget(builders[i]())
@@ -2315,7 +2934,7 @@ class MainWindow(QMainWindow):
             PAGE_SCRIPTS: self._script_running(), PAGE_WEB: self.ai.running(),
             PAGE_TOOLS: self._tools_running(), PAGE_AUTOCLICKER: self.ac.running(),
             PAGE_POCKETLAUNCHER: self.pl.running(), PAGE_POCKETVM: self.vm.running(),
-            PAGE_CPP: self.cpp.running(),
+            PAGE_CPP: self.cpp.running(), PAGE_NETSCANNER: self.ns.running(),
         }
         for index, base in self._nav_base.items():
             text = base + ("   \u25cf" if self._nav_running.get(index) else "")
@@ -2577,6 +3196,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.file_tree, stretch=1)
         layout.addWidget(self._label("Tip: double-click a folder to browse it, or double-click a file to open it "
                                      "with its default Windows application.", "Description"))
+        self._setup_file_ops(layout)
         return page
 
     def _show_folder(self, path):
@@ -3013,6 +3633,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             sys.modules.pop(module_name, None)
             self._plugin_actions.pop(rel, None)
+            self._plugin_commands.pop(rel, None)
             self._render_plugin_actions()
             log.exception("Plugin load failed: %s", rel)
             return False, f"Could not load {rel}: {exc}"
@@ -3031,6 +3652,7 @@ class MainWindow(QMainWindow):
         self._loaded_plugins.pop(rel, None)
         sys.modules.pop(loaded["module_name"], None)
         self._plugin_actions.pop(rel, None)
+        self._plugin_commands.pop(rel, None)
         self._render_plugin_actions()
         return True, f"Disabled {rel}"
 
@@ -3225,6 +3847,7 @@ class MainWindow(QMainWindow):
         self._button_row(layout, ("Open in VS Code", self.open_project_in_vscode, "Primary"),
                          ("Open Terminal Here", self.open_terminal_here), ("Pin / Unpin", self.toggle_pin_selected),
                          ("Show in Explorer", self.show_project_in_explorer), ("Refresh", self.refresh_projects))
+        self._add_git_buttons(layout)
         return page
 
     @staticmethod
@@ -3443,6 +4066,8 @@ class MainWindow(QMainWindow):
                 self.projects_status.setText(f"Cloned {message}.")
             else:
                 self.projects_status.setText(message)
+        elif kind == "git":
+            self.extras_task_done(kind, ok, message)
         elif kind == "eject":
             self._set_status(self.drives_status, ok, message)
             self._drives_sig = None
@@ -3574,7 +4199,9 @@ class MainWindow(QMainWindow):
         if args_text is None:
             args_text = self.settings.get("script_args").get(path.name, "")
         error = run_script(path, self.settings, args_text)
-        self.scripts_status.setText(error or f"Started {path.name} in a new console window.")
+        gui = os.name == "nt" and path.suffix.lower() in (".py", ".pyw") and is_gui_script(path)
+        self.scripts_status.setText(error or (f"Started {path.name} (GUI script, no console window)." if gui
+                                              else f"Started {path.name} in a new console window."))
 
     def _selected_script(self):
         path = self._selected_path(self.script_list)
@@ -4252,6 +4879,9 @@ class MainWindow(QMainWindow):
     def _build_cpp_page(self):
         return self._make_script_page("cpp", "C++ Compiler", CPP_COMPILER_FILE)
 
+    def _build_netscanner_page(self):
+        return self._make_script_page("ns", "Net Scanner", NETSCANNER_FILE)
+
     def _ac_refresh_status(self):
         if self.ac.running():
             return
@@ -4268,6 +4898,9 @@ class MainWindow(QMainWindow):
 
     def _cpp_refresh_status(self):
         self._script_refresh(self.cpp)
+
+    def _ns_refresh_status(self):
+        self._script_refresh(self.ns)
 
     def ac_toggle(self):
         self.ac.stop() if self.ac.running() else self.ac_start()
@@ -4293,6 +4926,9 @@ class MainWindow(QMainWindow):
 
     def cpp_toggle(self):
         self._script_toggle(self.cpp)
+
+    def ns_toggle(self):
+        self._script_toggle(self.ns)
 
     # ---------- JAR launcher ----------
 
@@ -4511,6 +5147,7 @@ class MainWindow(QMainWindow):
                "FirefoxPortable.exe was not found. 'Open in Browser' falls back to the default browser.")
         for label, path in (("Process manager helper", PROCESS_MANAGER_FILE), ("Autoclicker helper", AUTOCLICKER_FILE),
                             ("PocketLauncher helper", POCKETLAUNCHER_FILE), ("PocketVM helper", POCKETVM_FILE), ("C++ Compiler helper", CPP_COMPILER_FILE),
+                            ("Net Scanner helper", NETSCANNER_FILE),
                             ("PocketAi helper", POCKETAI_FILE)):
             exists(label, Path(path).is_file(), str(path), "WARNING")
 
@@ -4560,6 +5197,7 @@ class MainWindow(QMainWindow):
                 ("PocketLauncher process", self.pl.running(), "PocketLauncher helper"),
                 ("PocketVM process", self.vm.running(), "PocketVM helper"),
                 ("C++ Compiler process", self.cpp.running(), "CppRunner.py"),
+                ("Net Scanner process", self.ns.running(), "Net Scanner helper"),
                 ("Background manager", bg, "PocketTerm background manager")):
             add(label, "OK", f"{'Running' if running else 'Stopped'} • {detail}")
 
@@ -4707,6 +5345,8 @@ class MainWindow(QMainWindow):
             self.vm.stop()
         if self.cpp.running() and drive_of(CPP_COMPILER_FILE) == drive:
             self.cpp.stop()
+        if self.ns.running() and drive_of(NETSCANNER_FILE) == drive:
+            self.ns.stop()
 
     def eject_drive(self, root):
         drive = drive_of(root)
@@ -4908,7 +5548,8 @@ class MainWindow(QMainWindow):
         self._check_row(lay, "confirm_close", "Ask for confirmation when closing while the terminal, VS Code, "
                         "a tool or the autoclicker is running")
         self._check_row(lay, "auto_update", "Automatically download updates from GitHub (a backup is kept)")
-        self._button_row(lay, ("Check for updates now", self.check_updates_now))
+        self._button_row(lay, ("Check for updates now", self.check_updates_now),
+                         ("Roll back update...", self.rollback_update))
         cl.addWidget(card)
 
         # ----- Folders -----
@@ -5031,7 +5672,7 @@ class MainWindow(QMainWindow):
         commands += [("Terminal: New tab", self.new_terminal_tab), ("VS Code: Open folder...", self.open_folder_in_vscode),
                      ("VS Code: Start / restart", self.restart_vscode), ("Autoclicker: Start / Stop", self.ac_toggle),
                      ("PocketLauncher: Start / Stop", self.pl_toggle), ("PocketVM: Start / Stop", self.vm_toggle),
-                     ("C++ Compiler: Start / Stop", self.cpp_toggle),
+                     ("C++ Compiler: Start / Stop", self.cpp_toggle), ("Net Scanner: Start / Stop", self.ns_toggle),
                      ("Update: Check for updates now", self.check_updates_now)]
         for p in self._list_projects():
             commands.append((f"Project: Open in VS Code - {p.name}", lambda p=p: self._open_project(p)))
@@ -5041,6 +5682,7 @@ class MainWindow(QMainWindow):
             commands.append((f"Script: Edit in VS Code - {p.name}", lambda p=p: self.restart_vscode(p)))
         for s in self._snippets():
             commands.append((f"Snippet: Run - {s['name']}", lambda c=s["command"]: self._send_command(c, True)))
+        commands += self._plugin_command_items()
         CommandPalette(self, commands).open_centered()
 
 
@@ -5215,7 +5857,7 @@ class MainWindow(QMainWindow):
             return self.terminals.current_terminal()
         if index == PAGE_VSCODE:
             return self.vscode
-        scripts = {PAGE_POCKETLAUNCHER: self.pl, PAGE_POCKETVM: self.vm, PAGE_CPP: self.cpp}
+        scripts = {PAGE_POCKETLAUNCHER: self.pl, PAGE_POCKETVM: self.vm, PAGE_CPP: self.cpp, PAGE_NETSCANNER: self.ns}
         if index in scripts:
             return scripts[index]
         if index == PAGE_WEB and self.ai_tabs is not None and self.ai_tabs.currentIndex() == 0:
@@ -5246,7 +5888,9 @@ class MainWindow(QMainWindow):
                    PAGE_SETTINGS: self._refresh_statuses, PAGE_DASHBOARD: self._refresh_dashboard,
                    PAGE_AUTOCLICKER: self._ac_refresh_status, PAGE_POCKETLAUNCHER: self._pl_refresh_status,
                    PAGE_POCKETVM: self._vm_refresh_status, PAGE_CPP: self._cpp_refresh_status,
-                   PAGE_DIAGNOSTICS: self.run_diagnostics}
+                   PAGE_NETSCANNER: self._ns_refresh_status,
+                   PAGE_DIAGNOSTICS: self.run_diagnostics,
+                   PAGE_LOGS: self.refresh_logs, PAGE_WORKSPACES: self._render_workspaces}
         if index in on_show:
             on_show[index]()
         elif index == PAGE_PLUGINS:
@@ -5407,7 +6051,7 @@ class MainWindow(QMainWindow):
         add_action("Show PocketTerm", self._show_window)
         for text, page in (("Terminal", PAGE_TERMINAL), ("VS Code", PAGE_VSCODE), ("Autoclicker", PAGE_AUTOCLICKER),
                            ("PocketLauncher", PAGE_POCKETLAUNCHER), ("PocketVM", PAGE_POCKETVM),
-                           ("C++ Compiler", PAGE_CPP)):
+                           ("C++ Compiler", PAGE_CPP), ("Net Scanner", PAGE_NETSCANNER)):
             add_action(text, lambda p=page: go(p))
         menu.addSeparator()
         add_action("Quit", self._quit_from_tray)
@@ -5510,7 +6154,7 @@ class MainWindow(QMainWindow):
     def _anything_running(self):
         return (self.terminals.any_running() or self.vscode.is_running() or self._tools_running()
                 or self.ai.running() or self.ac.running() or self.pl.running() or self.vm.running()
-                or self.cpp.running() or proc_running(self.jar_proc) or self._script_running())
+                or self.cpp.running() or self.ns.running() or proc_running(self.jar_proc) or self._script_running())
 
     @staticmethod
     def _kill_process(proc):
@@ -5521,7 +6165,7 @@ class MainWindow(QMainWindow):
         if (self.settings.get("confirm_close") and not self._skip_close_confirm and self._anything_running()):
             answer = QMessageBox.question(
                 self, "Close PocketTerm",
-                "The terminal, VS Code, PocketAi, the autoclicker, PocketLauncher, PocketVM, the C++ compiler, "
+                "The terminal, VS Code, PocketAi, the autoclicker, PocketLauncher, PocketVM, the C++ compiler, Net Scanner, "
                 "a tool or a script is still running.\nClosing PocketTerm will stop them. Close anyway?")
             if answer != QMessageBox.Yes:
                 event.ignore()
@@ -5552,7 +6196,7 @@ class MainWindow(QMainWindow):
         if self._script_running():
             self.stop_script()
         self._ai_timer.stop()
-        for managed in (self.ai, self.ac, self.pl, self.vm, self.cpp):
+        for managed in (self.ai, self.ac, self.pl, self.vm, self.cpp, self.ns):
             managed.shutdown()
         if proc_running(self.jar_proc):
             self.jar_proc.terminate()
