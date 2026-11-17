@@ -151,7 +151,8 @@ PAGE_CPP = 19
 PAGE_NETSCANNER = 20
 PAGE_LOGS = 21
 PAGE_WORKSPACES = 22
-PAGE_COUNT = 23
+PAGE_MAIL = 23
+PAGE_COUNT = 24
 
 PLUGIN_REPO_API = "https://api.github.com/repos/nahashi86-eng/PocketTerm/git/trees/main?recursive=1"
 PLUGIN_RAW_BASE = "https://raw.githubusercontent.com/nahashi86-eng/PocketTerm/main/"
@@ -171,7 +172,7 @@ NAV_GROUPS = [
                    ("Workspaces", PAGE_WORKSPACES)]),
     ("Automation", [("Scripts", PAGE_SCRIPTS), ("Tools", PAGE_TOOLS), ("Autoclicker", PAGE_AUTOCLICKER),
                     ("PocketLauncher", PAGE_POCKETLAUNCHER), ("PocketVM", PAGE_POCKETVM),
-                    ("C++ Compiler", PAGE_CPP)]),
+                    ("C++ Compiler", PAGE_CPP), ("Mail Automation", PAGE_MAIL)]),
     ("Extensions", [("Plugins", PAGE_PLUGINS)]),
     ("Network", [("Remote Access", PAGE_REMOTE_ACCESS), ("Net Scanner", PAGE_NETSCANNER)]),
     ("System", [("Drives", PAGE_DRIVES), ("Ports", PAGE_PORTS), ("Diagnostics", PAGE_DIAGNOSTICS),
@@ -240,6 +241,7 @@ class Settings:
         "auto_update": True, "update_hash": "",  # GitHub auto update
         "workspaces": [],                                   # saved Workspaces
         "passcode_hash": "", "passcode_salt": "",           # startup passcode (empty = no passcode)
+        "mail_from": "", "mail_to": "",                     # Mail Automation: remembered Gmail addresses
     }
     SECRET_KEYS = ("passcode_hash", "passcode_salt")        # never exported or imported
     STR_LISTS =("pinned_projects", "recent_projects", "nav_collapsed", "enabled_plugins")
@@ -2794,6 +2796,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
             PAGE_REMOTE_ACCESS: self._build_remote_access_page,
             PAGE_CPP: self._build_cpp_page, PAGE_NETSCANNER: self._build_netscanner_page,
             PAGE_LOGS: self._build_logs_page, PAGE_WORKSPACES: self._build_workspaces_page,
+            PAGE_MAIL: self._build_mail_page,
         }
         for i in range(PAGE_COUNT):
             self.stacked_widget.addWidget(builders[i]())
@@ -5831,6 +5834,126 @@ class MainWindow(ExtrasMixin, QMainWindow):
         commands += self._plugin_command_items()
         CommandPalette(self, commands).open_centered()
 
+
+    # ---------- Mail automation (swaks, typed into the terminal) ----------
+    GMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@gmail\.com", re.IGNORECASE)
+
+    def _build_mail_page(self):
+        page, layout = self._page(
+            "Mail Automation",
+            "Send a Gmail message from a Gmail address you choose, using swaks in the PocketTerm terminal. "
+            "The command is typed into the current terminal tab, and swaks asks for the password there, "
+            "so PocketTerm never stores it.", gap=14)
+        card, lay = self._make_card(
+            "Compose",
+            "Gmail needs 2-Step Verification and an App Password for SMTP "
+            "(Google Account > Security > App passwords). Your normal password won't work.")
+
+        def field(caption, key=None, placeholder=""):
+            lay.addWidget(self._labeled(caption))
+            edit = QLineEdit(str(self.settings.get(key)) if key else "")
+            edit.setPlaceholderText(placeholder)
+            if key:
+                edit.editingFinished.connect(
+                    lambda k=key, e=edit: self.settings.set(k, e.text().strip()))
+            lay.addWidget(edit)
+            return edit
+
+        self.mail_from_edit = field("From (your Gmail address)", "mail_from", "you@gmail.com")
+        self.mail_to_edit = field("To (Gmail address)", "mail_to", "friend@gmail.com")
+        self.mail_subject_edit = field("Subject", None, "Subject line")
+        lay.addWidget(self._labeled("Message"))
+        self.mail_body_edit = QPlainTextEdit()
+        self.mail_body_edit.setObjectName("Log")
+        self.mail_body_edit.setPlaceholderText("Write your message here...")
+        self.mail_body_edit.setFixedHeight(130)
+        lay.addWidget(self.mail_body_edit)
+        self.mail_status = self._status_label(lay)
+        self._button_row(lay, ("Send in Terminal", self.mail_send, "Primary"),
+                         ("Copy swaks command", self.mail_copy_command), ("Clear", self.mail_clear))
+        layout.addWidget(card)
+        layout.addStretch(1)
+        self._refresh_mail_status()
+        return page
+
+    def _find_swaks(self):
+        """A local swaks script/exe on the USB, or None (then plain `swaks` from Git Bash's PATH is used)."""
+        rels = ("Tools/swaks/swaks.pl", "Tools/swaks.pl", "Tools/swaks/swaks.exe", "Tools/swaks.exe",
+                "Scripts/swaks.pl", "swaks.pl")
+        for base in (PORTABLE_ROOT, APP_DIR):
+            for rel in rels:
+                if (base / rel).is_file():
+                    return base / rel
+        return None
+
+    def _refresh_mail_status(self):
+        found = self._find_swaks()
+        if found:
+            self._set_status(self.mail_status, True, f"swaks found: {found}")
+        else:
+            self.mail_status.setStyleSheet("")
+            self.mail_status.setText("No swaks file found in Tools/. The command will call `swaks` from "
+                                     "Git Bash's PATH. If that fails, put swaks.pl in the Tools folder.")
+
+    def _mail_command(self):
+        """Return (command, error)."""
+        sender = self.mail_from_edit.text().strip()
+        to = self.mail_to_edit.text().strip()
+        subject = " ".join(self.mail_subject_edit.text().split())
+        body = self.mail_body_edit.toPlainText().strip()
+        if not self.GMAIL_RE.fullmatch(sender):
+            return None, "The From address must be a Gmail address (name@gmail.com)."
+        if not self.GMAIL_RE.fullmatch(to):
+            return None, "The To address must be a Gmail address (name@gmail.com)."
+        if not subject:
+            return None, "Enter a subject."
+        if not body:
+            return None, "Enter a message."
+        escaped = body.replace("\\", "\\\\").replace("\r\n", "\n").replace("\n", "\\n")
+        found = self._find_swaks()
+        if found is None:
+            program = "swaks"
+        elif found.suffix.lower() == ".exe":
+            program = shlex.quote(found.as_posix())
+        else:
+            program = "perl " + shlex.quote(found.as_posix())
+        parts = [program,
+                 "--to", shlex.quote(to), "--from", shlex.quote(sender),
+                 "--server", "smtp.gmail.com:587", "--tls",
+                 "--auth", "LOGIN", "--auth-user", shlex.quote(sender),
+                 "--header", shlex.quote("Subject: " + subject),
+                 "--body", '"$(printf \'%b\' ' + shlex.quote(escaped) + ')"']
+        return " ".join(parts), None
+
+    def mail_send(self):
+        cmd, error = self._mail_command()
+        if error:
+            self._set_status(self.mail_status, False, error)
+            return
+        term = self.terminals.current_terminal()
+        if term is None or not term.hwnd:
+            self._set_status(self.mail_status, False,
+                             "The current terminal tab isn't running. Start it on the Terminal page first.")
+            return
+        if self._send_command(cmd, True):
+            log.info("Mail Automation: swaks command sent to the terminal.")
+            self._set_status(self.mail_status, True,
+                             "Command sent. Enter your Gmail App Password at the prompt in the terminal.")
+        else:
+            self._set_status(self.mail_status, False, "Couldn't type into the terminal.")
+
+    def mail_copy_command(self):
+        cmd, error = self._mail_command()
+        if error:
+            self._set_status(self.mail_status, False, error)
+            return
+        QApplication.clipboard().setText(cmd)
+        self._set_status(self.mail_status, True, "swaks command copied. It contains no password.")
+
+    def mail_clear(self):
+        self.mail_subject_edit.clear()
+        self.mail_body_edit.clear()
+        self._refresh_mail_status()
 
     # ---------- LAN remote access ----------
     REMOTE_DISCOVERY_PORT = 47630
