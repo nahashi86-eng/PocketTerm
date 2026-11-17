@@ -7,7 +7,7 @@ import importlib.util
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QFileDialog, QCheckBox, QComboBox,
@@ -238,14 +238,44 @@ class PythonCompiler(QMainWindow):
         foot.setWordWrap(True)
         outer.addWidget(foot)
 
+    @staticmethod
+    def _find_main_app_file():
+        """Find PocketTerm's main source even when the user renamed the main script."""
+        here = Path(__file__).resolve().parent
+        names = (
+            "PocketTerm.py",
+            "PocketTerm_Enhanced.py",
+            "PocketTerm_Main.py",
+            "PocketTermLauncher.py",
+        )
+        search_dirs = []
+        for folder in (here, *here.parents):
+            if folder not in search_dirs:
+                search_dirs.append(folder)
+        for folder in search_dirs:
+            for name in names:
+                candidate = folder / name
+                if candidate.is_file() and candidate.resolve() != Path(__file__).resolve():
+                    return candidate
+            # Also accept a renamed PocketTerm main file, but not arbitrary scripts.
+            matches = sorted(folder.glob("PocketTerm*.py"))
+            for candidate in matches:
+                if candidate.is_file() and candidate.resolve() != Path(__file__).resolve():
+                    return candidate
+        return None
+
     def _load_embedded_terminal(self):
         """Reuse PocketTerm's native Windows terminal-embedding implementation."""
-        main_file = Path(__file__).resolve().with_name("PocketTerm.py")
+        main_file = self._find_main_app_file()
         if os.name != "nt":
             self.log_view.appendPlainText("Embedded Git Bash window hosting is supported on Windows only.")
             return
         if not main_file.is_file():
-            self.log_view.appendPlainText(f"PocketTerm.py not found beside this compiler: {main_file}")
+            self.log_view.appendPlainText(
+                "PocketTerm main source was not found. Looked for PocketTerm.py, "
+                "PocketTerm_Enhanced.py and other PocketTerm*.py files in the Scripts folder "
+                "and its parent folders."
+            )
             return
         try:
             spec = importlib.util.spec_from_file_location("pocketterm_embedding_runtime", main_file)
@@ -254,6 +284,21 @@ class PythonCompiler(QMainWindow):
             module = importlib.util.module_from_spec(spec)
             sys.modules[spec.name] = module
             spec.loader.exec_module(module)
+
+            # Reuse the exact icon lookup used by PocketTerm's main window.
+            icon_path, icon_status = module.find_icon()
+            if icon_path:
+                main_icon = QIcon(str(icon_path))
+                if not main_icon.isNull():
+                    self.setWindowIcon(main_icon)
+                    app = QApplication.instance()
+                    if app is not None:
+                        app.setWindowIcon(main_icon)
+                    self.log_view.appendPlainText(f"PocketTerm icon loaded: {icon_path}")
+                else:
+                    self.log_view.appendPlainText(f"PocketTerm icon could not be read: {icon_path}")
+            else:
+                self.log_view.appendPlainText(f"PocketTerm icon not found. {icon_status}")
 
             # Use the exact stylesheet and accent palette used by the main PocketTerm app.
             # Settings() reads the same Config/settings.json, including a custom accent.
@@ -387,6 +432,13 @@ class PythonCompiler(QMainWindow):
 
 
 def main():
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("PocketTerm.Launcher")
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
     app.setStyle("Fusion")
