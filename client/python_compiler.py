@@ -141,11 +141,72 @@ class PythonCompiler(QMainWindow):
 
         panel = QFrame()
         panel.setObjectName("Card")
+        panel.setStyleSheet("""
+            QFrame#Card {
+                background-color: #171321;
+                border: 1px solid #39265c;
+                border-radius: 14px;
+            }
+            QLabel {
+                color: #eee9ff;
+                background: transparent;
+                padding: 4px 2px;
+            }
+            QLabel#SectionTitle {
+                color: #c6a7ff;
+                font-weight: 700;
+                background: transparent;
+            }
+            QLineEdit, QComboBox {
+                color: #f5f0ff;
+                background-color: #0d0a14;
+                border: 1px solid #493366;
+                border-radius: 7px;
+                padding: 9px 11px;
+                min-height: 24px;
+            }
+            QLineEdit:focus, QComboBox:focus {
+                border: 1px solid #914dff;
+            }
+            QPushButton {
+                color: #f5f0ff;
+                background-color: #211832;
+                border: 1px solid #493366;
+                border-radius: 7px;
+                padding: 9px 14px;
+                min-height: 24px;
+            }
+            QPushButton:hover {
+                background-color: #302044;
+                border-color: #914dff;
+            }
+            QCheckBox {
+                color: #eee9ff;
+                background: transparent;
+                spacing: 9px;
+                padding: 5px 2px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                background: #0d0a14;
+                border: 1px solid #65458b;
+                border-radius: 4px;
+            }
+            QCheckBox::indicator:checked {
+                background: #914dff;
+                border-color: #914dff;
+            }
+        """)
         form = QGridLayout(panel)
         form.setContentsMargins(22, 20, 22, 20)
         form.setHorizontalSpacing(16)
         form.setVerticalSpacing(18)
         form.setColumnMinimumWidth(0, 150)
+        form.setRowMinimumHeight(1, 48)
+        form.setRowMinimumHeight(2, 48)
+        form.setRowMinimumHeight(3, 48)
+        form.setRowMinimumHeight(4, 48)
 
         section = QLabel("BUILD CONFIGURATION")
         section.setObjectName("SectionTitle")
@@ -276,7 +337,7 @@ class PythonCompiler(QMainWindow):
         if os.name != "nt":
             self.log_view.appendPlainText("Embedded Git Bash window hosting is supported on Windows only.")
             return
-        if not main_file.is_file():
+        if main_file is None or not main_file.is_file():
             self.log_view.appendPlainText(
                 "PocketTerm main source was not found. Looked for PocketTerm.py, "
                 "PocketTerm_Enhanced.py and other PocketTerm*.py files in the Scripts folder "
