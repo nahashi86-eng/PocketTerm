@@ -110,6 +110,7 @@ POCKETVM_FILE = SCRIPT_DIR / "PocketVM.py"
 NETSCANNER_FILE = SCRIPT_DIR / "Netscanner.py"
 CPP_COMPILER_FILE = SCRIPT_DIR / "CppRunner.py"
 PYTHON_COMPILER_FILE = SCRIPT_DIR / "python_compiler.py"
+MC_SERVER_BOT_FILE = SCRIPT_DIR / "mcserver_bot.py"
 POCKETAI_FILE = SCRIPT_DIR / "PocketAi.py"
 
 
@@ -154,7 +155,8 @@ PAGE_LOGS = 21
 PAGE_WORKSPACES = 22
 PAGE_MAIL = 23
 PAGE_PYTHON_COMPILER = 24
-PAGE_COUNT = 25
+PAGE_MC_SERVER_BOT = 25
+PAGE_COUNT = 26
 
 PLUGIN_REPO_API = "https://api.github.com/repos/nahashi86-eng/PocketTerm/git/trees/main?recursive=1"
 PLUGIN_RAW_BASE = "https://raw.githubusercontent.com/nahashi86-eng/PocketTerm/main/"
@@ -176,7 +178,8 @@ NAV_GROUPS = [
                     ("PocketLauncher", PAGE_POCKETLAUNCHER), ("PocketVM", PAGE_POCKETVM),
                     ("C++ Compiler", PAGE_CPP), ("Python Compiler", PAGE_PYTHON_COMPILER), ("Mail Automation", PAGE_MAIL)]),
     ("Extensions", [("Plugins", PAGE_PLUGINS)]),
-    ("Network", [("Remote Access", PAGE_REMOTE_ACCESS), ("Net Scanner", PAGE_NETSCANNER)]),
+    ("Network", [("Remote Access", PAGE_REMOTE_ACCESS), ("Net Scanner", PAGE_NETSCANNER),
+                 ("MCServer Bot", PAGE_MC_SERVER_BOT)]),
     ("System", [("Drives", PAGE_DRIVES), ("Ports", PAGE_PORTS), ("Diagnostics", PAGE_DIAGNOSTICS),
                 ("JAR Launcher", PAGE_JAR_LAUNCHER), ("Logs", PAGE_LOGS)]),
     ("AI & Web", [("PocketAi", PAGE_WEB)]),
@@ -2799,6 +2802,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
             PAGE_CPP: self._build_cpp_page, PAGE_NETSCANNER: self._build_netscanner_page,
             PAGE_LOGS: self._build_logs_page, PAGE_WORKSPACES: self._build_workspaces_page,
             PAGE_MAIL: self._build_mail_page, PAGE_PYTHON_COMPILER: self._build_python_compiler_page,
+            PAGE_MC_SERVER_BOT: self._build_mcserver_bot_page,
         }
         for i in range(PAGE_COUNT):
             self.stacked_widget.addWidget(builders[i]())
@@ -5005,6 +5009,9 @@ class MainWindow(ExtrasMixin, QMainWindow):
 
     def _build_netscanner_page(self):
         return self._make_script_page("ns", "Net Scanner", NETSCANNER_FILE)
+
+    def _build_mcserver_bot_page(self):
+        return self._make_script_page("mcserver_bot", "MCServer Bot", MC_SERVER_BOT_FILE)
 
     def _ac_refresh_status(self):
         if self.ac.running():
