@@ -109,6 +109,7 @@ POCKETLAUNCHER_FILE = SCRIPT_DIR / "PocketLauncher.py"
 POCKETVM_FILE = SCRIPT_DIR / "PocketVM.py"
 NETSCANNER_FILE = SCRIPT_DIR / "Netscanner.py"
 CPP_COMPILER_FILE = SCRIPT_DIR / "CppRunner.py"
+PYTHON_COMPILER_FILE = SCRIPT_DIR / "python_compiler.py"
 POCKETAI_FILE = SCRIPT_DIR / "PocketAi.py"
 
 
@@ -152,7 +153,8 @@ PAGE_NETSCANNER = 20
 PAGE_LOGS = 21
 PAGE_WORKSPACES = 22
 PAGE_MAIL = 23
-PAGE_COUNT = 24
+PAGE_PYTHON_COMPILER = 24
+PAGE_COUNT = 25
 
 PLUGIN_REPO_API = "https://api.github.com/repos/nahashi86-eng/PocketTerm/git/trees/main?recursive=1"
 PLUGIN_RAW_BASE = "https://raw.githubusercontent.com/nahashi86-eng/PocketTerm/main/"
@@ -172,7 +174,7 @@ NAV_GROUPS = [
                    ("Workspaces", PAGE_WORKSPACES)]),
     ("Automation", [("Scripts", PAGE_SCRIPTS), ("Tools", PAGE_TOOLS), ("Autoclicker", PAGE_AUTOCLICKER),
                     ("PocketLauncher", PAGE_POCKETLAUNCHER), ("PocketVM", PAGE_POCKETVM),
-                    ("C++ Compiler", PAGE_CPP), ("Mail Automation", PAGE_MAIL)]),
+                    ("C++ Compiler", PAGE_CPP), ("Python Compiler", PAGE_PYTHON_COMPILER), ("Mail Automation", PAGE_MAIL)]),
     ("Extensions", [("Plugins", PAGE_PLUGINS)]),
     ("Network", [("Remote Access", PAGE_REMOTE_ACCESS), ("Net Scanner", PAGE_NETSCANNER)]),
     ("System", [("Drives", PAGE_DRIVES), ("Ports", PAGE_PORTS), ("Diagnostics", PAGE_DIAGNOSTICS),
@@ -2796,7 +2798,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
             PAGE_REMOTE_ACCESS: self._build_remote_access_page,
             PAGE_CPP: self._build_cpp_page, PAGE_NETSCANNER: self._build_netscanner_page,
             PAGE_LOGS: self._build_logs_page, PAGE_WORKSPACES: self._build_workspaces_page,
-            PAGE_MAIL: self._build_mail_page,
+            PAGE_MAIL: self._build_mail_page, PAGE_PYTHON_COMPILER: self._build_python_compiler_page,
         }
         for i in range(PAGE_COUNT):
             self.stacked_widget.addWidget(builders[i]())
@@ -4960,6 +4962,47 @@ class MainWindow(ExtrasMixin, QMainWindow):
     def _build_cpp_page(self):
         return self._make_script_page("cpp", "C++ Compiler", CPP_COMPILER_FILE)
 
+    def _build_python_compiler_page(self):
+        page, layout = self._page(
+            "Python Compiler",
+            "Launches python_compiler.py inside a GitPortable terminal. Run PyInstaller commands "
+            "from that terminal so the portable Python environment and its installed packages are used.",
+            (self._button("Launch Python Compiler", self._launch_python_compiler, "Primary"),
+             self._button("Open Script Folder", lambda: open_path(SCRIPT_DIR)),
+             self._button("Edit in VS Code", lambda: self._edit_script_file(PYTHON_COMPILER_FILE))), gap=10)
+        self.python_compiler_status = self._status_label(layout, "Ready to launch.", "Description")
+        note = QLabel("Expected file: " + str(PYTHON_COMPILER_FILE) +
+                      "\nThe compiler runs in the GitPortable terminal, not a separate system console.")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {TEXT_MUTED}; padding: 8px 2px;")
+        layout.addWidget(note)
+        return page
+
+    def _launch_python_compiler(self):
+        if not PYTHON_COMPILER_FILE.is_file():
+            self.python_compiler_status.setText(f"python_compiler.py not found:\n{PYTHON_COMPILER_FILE}")
+            return
+        term = self.terminals.add_terminal(start=True, target=SCRIPT_DIR, title="Python Compiler")
+        self.show_page(PAGE_TERMINAL)
+        self.python_compiler_status.setText("Starting GitPortable terminal...")
+        command = 'python "' + str(PYTHON_COMPILER_FILE).replace('\\', '/') + '"'
+        attempts = {"count": 0}
+
+        def send_when_ready():
+            attempts["count"] += 1
+            if term.hwnd and term._alive():
+                if term.send_text(command + "\n"):
+                    self.python_compiler_status.setText("Python Compiler launched in GitPortable terminal.")
+                else:
+                    self.python_compiler_status.setText("Terminal is ready, but the launch command could not be sent.")
+                return
+            if not term.is_running() or attempts["count"] >= 60:
+                self.python_compiler_status.setText("GitPortable terminal did not become ready. Start it from Terminal View and try again.")
+                return
+            QTimer.singleShot(500, send_when_ready)
+
+        QTimer.singleShot(500, send_when_ready)
+
     def _build_netscanner_page(self):
         return self._make_script_page("ns", "Net Scanner", NETSCANNER_FILE)
 
@@ -6320,7 +6363,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
         add_action("Show PocketTerm", self._show_window)
         for text, page in (("Terminal", PAGE_TERMINAL), ("VS Code", PAGE_VSCODE), ("Autoclicker", PAGE_AUTOCLICKER),
                            ("PocketLauncher", PAGE_POCKETLAUNCHER), ("PocketVM", PAGE_POCKETVM),
-                           ("C++ Compiler", PAGE_CPP), ("Net Scanner", PAGE_NETSCANNER)):
+                           ("C++ Compiler", PAGE_CPP), ("Python Compiler", PAGE_PYTHON_COMPILER), ("Net Scanner", PAGE_NETSCANNER)):
             add_action(text, lambda p=page: go(p))
         menu.addSeparator()
         add_action("Quit", self._quit_from_tray)
