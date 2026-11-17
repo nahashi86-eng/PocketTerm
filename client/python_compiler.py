@@ -11,7 +11,7 @@ from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QFileDialog, QCheckBox, QComboBox,
-    QPlainTextEdit, QMessageBox, QFrame
+    QPlainTextEdit, QMessageBox, QFrame, QSizePolicy, QScrollArea
 )
 
 APP_TITLE = "PocketTerm Python Compiler"
@@ -115,8 +115,8 @@ class PythonCompiler(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
-        self.resize(900, 820)
-        self.setMinimumSize(780, 700)
+        self.resize(980, 820)
+        self.setMinimumSize(520, 520)
         self.bash_path, self.mintty_path = git_bash_paths()
         self.embedded_terminal = None
         self._build_ui()
@@ -126,135 +126,154 @@ class PythonCompiler(QMainWindow):
     def _build_ui(self):
         root = QWidget()
         self.setCentralWidget(root)
-        outer = QVBoxLayout(root)
-        outer.setContentsMargins(26, 24, 26, 24)
-        outer.setSpacing(20)
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        root_layout.addWidget(scroll)
+
+        content = QWidget()
+        content.setMinimumWidth(0)
+        scroll.setWidget(content)
+
+        outer = QVBoxLayout(content)
+        outer.setContentsMargins(24, 20, 24, 20)
+        outer.setSpacing(16)
 
         heading = QVBoxLayout()
+        heading.setSpacing(5)
         title = QLabel("Python Compiler")
-        title.setObjectName("PageTitle")
+        title.setStyleSheet("font-size: 20pt; font-weight: 700; color: #f3f0ff;")
         subtitle = QLabel("Build standalone Windows applications with PyInstaller through GitPortable.")
-        subtitle.setObjectName("Description")
+        subtitle.setStyleSheet("color: #a69fc4;")
+        subtitle.setWordWrap(True)
         heading.addWidget(title)
         heading.addWidget(subtitle)
         outer.addLayout(heading)
 
         panel = QFrame()
-        panel.setObjectName("Card")
+        panel.setObjectName("CompilerFormCard")
         panel.setStyleSheet("""
-            QFrame#Card {
-                background-color: #171321;
+            QFrame#CompilerFormCard {
+                background: #171321;
                 border: 1px solid #39265c;
-                border-radius: 14px;
+                border-radius: 12px;
             }
-            QLabel {
+            QFrame#CompilerFormCard QLabel {
                 color: #eee9ff;
                 background: transparent;
-                padding: 4px 2px;
+                border: none;
+                padding: 0px;
             }
-            QLabel#SectionTitle {
+            QFrame#CompilerFormCard QLabel#FormSection {
                 color: #c6a7ff;
                 font-weight: 700;
-                background: transparent;
             }
-            QLineEdit, QComboBox {
+            QFrame#CompilerFormCard QLineEdit,
+            QFrame#CompilerFormCard QComboBox {
                 color: #f5f0ff;
-                background-color: #0d0a14;
-                border: 1px solid #493366;
-                border-radius: 7px;
-                padding: 9px 11px;
-                min-height: 24px;
-            }
-            QLineEdit:focus, QComboBox:focus {
-                border: 1px solid #914dff;
-            }
-            QPushButton {
-                color: #f5f0ff;
-                background-color: #211832;
-                border: 1px solid #493366;
-                border-radius: 7px;
-                padding: 9px 14px;
-                min-height: 24px;
-            }
-            QPushButton:hover {
-                background-color: #302044;
-                border-color: #914dff;
-            }
-            QCheckBox {
-                color: #eee9ff;
-                background: transparent;
-                spacing: 9px;
-                padding: 5px 2px;
-            }
-            QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
                 background: #0d0a14;
-                border: 1px solid #65458b;
-                border-radius: 4px;
+                border: 1px solid #493366;
+                border-radius: 7px;
+                padding: 8px 10px;
+                min-height: 24px;
             }
-            QCheckBox::indicator:checked {
-                background: #914dff;
+            QFrame#CompilerFormCard QPushButton {
+                color: #f5f0ff;
+                background: #211832;
+                border: 1px solid #493366;
+                border-radius: 7px;
+                padding: 8px 12px;
+                min-height: 24px;
+            }
+            QFrame#CompilerFormCard QPushButton:hover {
+                background: #302044;
                 border-color: #914dff;
+            }
+            QFrame#CompilerFormCard QCheckBox {
+                color: #eee9ff;
+                spacing: 9px;
+                padding: 3px 0px;
             }
         """)
-        form = QGridLayout(panel)
-        form.setContentsMargins(22, 20, 22, 20)
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(18)
-        form.setColumnMinimumWidth(0, 150)
-        form.setRowMinimumHeight(1, 48)
-        form.setRowMinimumHeight(2, 48)
-        form.setRowMinimumHeight(3, 48)
-        form.setRowMinimumHeight(4, 48)
+        form = QVBoxLayout(panel)
+        form.setContentsMargins(18, 18, 18, 18)
+        form.setSpacing(10)
 
         section = QLabel("BUILD CONFIGURATION")
-        section.setObjectName("SectionTitle")
-        form.addWidget(section, 0, 0, 1, 3)
+        section.setObjectName("FormSection")
+        form.addWidget(section)
 
-        form.addWidget(QLabel("Python file"), 1, 0)
+        def add_field(label_text, edit, browse_callback=None):
+            field = QVBoxLayout()
+            field.setSpacing(5)
+            label = QLabel(label_text)
+            field.addWidget(label)
+
+            if browse_callback is None:
+                edit.setMinimumHeight(42)
+                edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                field.addWidget(edit)
+            else:
+                line = QHBoxLayout()
+                line.setSpacing(8)
+                edit.setMinimumHeight(42)
+                edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                line.addWidget(edit, 1)
+                browse = QPushButton("Browse")
+                browse.setMinimumWidth(92)
+                browse.setFixedHeight(42)
+                browse.clicked.connect(browse_callback)
+                line.addWidget(browse, 0)
+                field.addLayout(line)
+            form.addLayout(field)
+
         self.script_edit = QLineEdit()
         self.script_edit.setPlaceholderText("Choose the .py file to compile")
-        form.addWidget(self.script_edit, 1, 1)
-        browse_script = QPushButton("Browse")
-        browse_script.clicked.connect(self._browse_script)
-        form.addWidget(browse_script, 1, 2)
+        add_field("Python file", self.script_edit, self._browse_script)
 
-        form.addWidget(QLabel("Application name"), 2, 0)
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("Use the script filename")
-        form.addWidget(self.name_edit, 2, 1, 1, 2)
+        add_field("Application name", self.name_edit)
 
-        form.addWidget(QLabel("Output folder"), 3, 0)
         self.output_edit = QLineEdit()
         self.output_edit.setPlaceholderText("Default: create build files beside the script")
-        form.addWidget(self.output_edit, 3, 1)
-        browse_output = QPushButton("Browse")
-        browse_output.clicked.connect(self._browse_output)
-        form.addWidget(browse_output, 3, 2)
+        add_field("Output folder", self.output_edit, self._browse_output)
 
-        form.addWidget(QLabel("Build mode"), 4, 0)
+        mode_field = QVBoxLayout()
+        mode_field.setSpacing(5)
+        mode_field.addWidget(QLabel("Build mode"))
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("One file (.exe)", "onefile")
         self.mode_combo.addItem("One folder (faster startup)", "onedir")
-        form.addWidget(self.mode_combo, 4, 1, 1, 2)
+        self.mode_combo.setMinimumHeight(42)
+        mode_field.addWidget(self.mode_combo)
+        form.addLayout(mode_field)
 
         self.windowed_check = QCheckBox("Windowed app (hide the console window)")
         self.windowed_check.setChecked(True)
         self.clean_check = QCheckBox("Clean previous build files before compiling")
-        form.addWidget(self.windowed_check, 5, 0, 1, 3)
-        form.addWidget(self.clean_check, 6, 0, 1, 3)
-        outer.addWidget(panel)
+        form.addWidget(self.windowed_check)
+        form.addWidget(self.clean_check)
+        outer.addWidget(panel, 0)
 
         actions = QHBoxLayout()
+        actions.setSpacing(10)
         self.compile_button = QPushButton("Compile with PyInstaller")
         self.compile_button.setObjectName("Primary")
+        self.compile_button.setMinimumHeight(42)
         self.compile_button.clicked.connect(self._compile)
         actions.addWidget(self.compile_button)
         clear_button = QPushButton("Clear fields")
+        clear_button.setMinimumHeight(42)
         clear_button.clicked.connect(self._clear_fields)
         actions.addWidget(clear_button)
-        actions.addStretch()
+        actions.addStretch(1)
         outer.addLayout(actions)
 
         self.status = QLabel("Ready.")
@@ -262,12 +281,20 @@ class PythonCompiler(QMainWindow):
         outer.addWidget(self.status)
 
         log_panel = QFrame()
-        log_panel.setObjectName("Card")
+        log_panel.setObjectName("CompilerLogCard")
+        log_panel.setStyleSheet("""
+            QFrame#CompilerLogCard {
+                background: #171321;
+                border: 1px solid #39265c;
+                border-radius: 12px;
+            }
+        """)
         log_layout = QVBoxLayout(log_panel)
-        log_layout.setContentsMargins(18, 16, 18, 18)
+        log_layout.setContentsMargins(14, 12, 14, 12)
+        log_layout.setSpacing(8)
         log_head = QHBoxLayout()
         log_title = QLabel("TERMINAL OUTPUT")
-        log_title.setObjectName("SectionTitle")
+        log_title.setStyleSheet("color: #c6a7ff; font-weight: 700;")
         log_head.addWidget(log_title)
         log_head.addStretch()
         clear_log = QPushButton("Clear")
@@ -275,20 +302,28 @@ class PythonCompiler(QMainWindow):
         log_head.addWidget(clear_log)
         log_layout.addLayout(log_head)
         self.log_view = QPlainTextEdit()
-        self.log_view.setObjectName("Log")
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(1500)
+        self.log_view.setMinimumHeight(80)
         self.log_view.setPlaceholderText("Terminal setup messages will appear here.")
-        log_layout.addWidget(self.log_view, 1)
-        outer.addWidget(log_panel)
+        log_layout.addWidget(self.log_view)
+        outer.addWidget(log_panel, 0)
 
         terminal_panel = QFrame()
-        terminal_panel.setObjectName("Card")
+        terminal_panel.setObjectName("CompilerTerminalCard")
+        terminal_panel.setStyleSheet("""
+            QFrame#CompilerTerminalCard {
+                background: #171321;
+                border: 1px solid #39265c;
+                border-radius: 12px;
+            }
+        """)
         terminal_layout = QVBoxLayout(terminal_panel)
-        terminal_layout.setContentsMargins(18, 16, 18, 18)
+        terminal_layout.setContentsMargins(14, 12, 14, 12)
+        terminal_layout.setSpacing(8)
         terminal_header = QHBoxLayout()
         terminal_title = QLabel("EMBEDDED GITPORTABLE TERMINAL")
-        terminal_title.setObjectName("SectionTitle")
+        terminal_title.setStyleSheet("color: #c6a7ff; font-weight: 700;")
         terminal_header.addWidget(terminal_title)
         terminal_header.addStretch()
         self.start_terminal_button = QPushButton("Start terminal")
@@ -298,12 +333,14 @@ class PythonCompiler(QMainWindow):
         self.terminal_host_layout = QVBoxLayout()
         self.terminal_host_layout.setContentsMargins(0, 0, 0, 0)
         terminal_layout.addLayout(self.terminal_host_layout, 1)
-        outer.addWidget(terminal_panel, 2)
+        outer.addWidget(terminal_panel, 1)
 
         foot = QLabel("The GitPortable Bash terminal is embedded directly in this window. Compilation output appears there.")
-        foot.setObjectName("Subtitle")
+        foot.setStyleSheet("color: #a69fc4;")
         foot.setWordWrap(True)
         outer.addWidget(foot)
+
+        outer.addStretch(0)
 
     @staticmethod
     def _find_main_app_file():
