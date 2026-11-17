@@ -77,9 +77,14 @@ def qss():
     QLabel#Subtitle {{ color: {MUTED}; font-size: 9pt; }}
     QLabel#Section {{ color: {ACCENT_HOVER}; font-size: 10pt; font-weight: 700; }}
     QLabel#Status {{ color: {GREEN}; }}
-    QLineEdit, QComboBox, QPlainTextEdit {{
+    QLabel {{ padding-top: 3px; padding-bottom: 3px; }}
+    QLineEdit, QComboBox {{
         background: #0c1119; border: 1px solid {BORDER}; border-radius: 6px;
-        padding: 8px; selection-background-color: {ACCENT};
+        padding: 10px 12px; min-height: 22px; selection-background-color: {ACCENT};
+    }}
+    QPlainTextEdit {{
+        background: #0c1119; border: 1px solid {BORDER}; border-radius: 6px;
+        padding: 10px 12px; selection-background-color: {ACCENT};
     }}
     QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus {{
         border: 1px solid {ACCENT};
@@ -87,7 +92,7 @@ def qss():
     QComboBox::drop-down {{ border: 0; width: 24px; }}
     QPushButton {{
         background: {PANEL_ALT}; border: 1px solid {BORDER}; border-radius: 7px;
-        padding: 8px 13px; font-weight: 600;
+        padding: 10px 16px; min-height: 24px; font-weight: 600;
     }}
     QPushButton:hover {{ border-color: {ACCENT}; background: #252d3d; }}
     QPushButton:pressed {{ background: #302448; }}
@@ -95,7 +100,7 @@ def qss():
         background: {ACCENT}; color: white; border: 1px solid {ACCENT};
     }}
     QPushButton#Primary:hover {{ background: {ACCENT_HOVER}; }}
-    QCheckBox {{ spacing: 8px; color: {TEXT}; }}
+    QCheckBox {{ spacing: 10px; color: {TEXT}; padding: 4px 0; }}
     QCheckBox::indicator {{
         width: 16px; height: 16px; border-radius: 4px;
         border: 1px solid {BORDER}; background: #0c1119;
@@ -110,8 +115,8 @@ class PythonCompiler(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
-        self.resize(760, 650)
-        self.setMinimumSize(620, 540)
+        self.resize(900, 820)
+        self.setMinimumSize(780, 700)
         self.bash_path, self.mintty_path = git_bash_paths()
         self.embedded_terminal = None
         self._build_ui()
@@ -122,8 +127,8 @@ class PythonCompiler(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
         outer = QVBoxLayout(root)
-        outer.setContentsMargins(22, 20, 22, 20)
-        outer.setSpacing(14)
+        outer.setContentsMargins(26, 24, 26, 24)
+        outer.setSpacing(20)
 
         heading = QVBoxLayout()
         title = QLabel("Python Compiler")
@@ -137,9 +142,10 @@ class PythonCompiler(QMainWindow):
         panel = QFrame()
         panel.setObjectName("Card")
         form = QGridLayout(panel)
-        form.setContentsMargins(16, 16, 16, 16)
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(12)
+        form.setContentsMargins(22, 20, 22, 20)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(18)
+        form.setColumnMinimumWidth(0, 150)
 
         section = QLabel("BUILD CONFIGURATION")
         section.setObjectName("SectionTitle")
@@ -197,7 +203,7 @@ class PythonCompiler(QMainWindow):
         log_panel = QFrame()
         log_panel.setObjectName("Card")
         log_layout = QVBoxLayout(log_panel)
-        log_layout.setContentsMargins(14, 12, 14, 14)
+        log_layout.setContentsMargins(18, 16, 18, 18)
         log_head = QHBoxLayout()
         log_title = QLabel("TERMINAL OUTPUT")
         log_title.setObjectName("SectionTitle")
@@ -218,7 +224,7 @@ class PythonCompiler(QMainWindow):
         terminal_panel = QFrame()
         terminal_panel.setObjectName("Card")
         terminal_layout = QVBoxLayout(terminal_panel)
-        terminal_layout.setContentsMargins(12, 10, 12, 12)
+        terminal_layout.setContentsMargins(18, 16, 18, 18)
         terminal_header = QHBoxLayout()
         terminal_title = QLabel("EMBEDDED GITPORTABLE TERMINAL")
         terminal_title.setObjectName("SectionTitle")
@@ -311,7 +317,7 @@ class PythonCompiler(QMainWindow):
             settings["terminal_direct_launch"] = True
             self.embedded_terminal = module.EmbeddedGitBash(settings, self)
             self.terminal_host_layout.addWidget(self.embedded_terminal)
-            self.embedded_terminal.setMinimumHeight(210)
+            self.embedded_terminal.setMinimumHeight(260)
             self._start_embedded_terminal()
         except Exception as exc:
             self.embedded_terminal = None
