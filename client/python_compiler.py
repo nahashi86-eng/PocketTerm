@@ -348,9 +348,25 @@ class PythonCompiler(QMainWindow):
             self.status.setStyleSheet(f"color: {RED};")
             self.log_view.appendPlainText("Expected App/Git/bin/bash.exe below the portable root.")
 
+    def _run_native_file_dialog(self, dialog_call):
+        """Show the normal Windows file picker without PocketTerm's app-wide QSS skinning it."""
+        app = QApplication.instance()
+        previous_stylesheet = app.styleSheet() if app is not None else ""
+        try:
+            if app is not None:
+                app.setStyleSheet("")
+            return dialog_call()
+        finally:
+            if app is not None:
+                app.setStyleSheet(previous_stylesheet)
+
     def _browse_script(self):
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "Select Python file", str(PORTABLE_ROOT), "Python files (*.py)"
+        filename, _ = self._run_native_file_dialog(
+            lambda: QFileDialog.getOpenFileName(
+                self, "Select Python file", str(PORTABLE_ROOT),
+                "Python files (*.py);;All files (*.*)",
+                options=QFileDialog.Option(0)
+            )
         )
         if filename:
             self.script_edit.setText(filename)
@@ -358,7 +374,12 @@ class PythonCompiler(QMainWindow):
                 self.name_edit.setText(Path(filename).stem)
 
     def _browse_output(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select output folder", str(PORTABLE_ROOT))
+        folder = self._run_native_file_dialog(
+            lambda: QFileDialog.getExistingDirectory(
+                self, "Select output folder", str(PORTABLE_ROOT),
+                options=QFileDialog.Option(0)
+            )
+        )
         if folder:
             self.output_edit.setText(folder)
 
