@@ -3,6 +3,7 @@ import sys
 import shlex
 import shutil
 import subprocess
+import importlib.util
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -112,7 +113,9 @@ class PythonCompiler(QMainWindow):
         self.resize(760, 650)
         self.setMinimumSize(620, 540)
         self.bash_path, self.mintty_path = git_bash_paths()
+        self.embedded_terminal = None
         self._build_ui()
+        self._load_embedded_terminal()
         self._refresh_terminal_status()
 
     def _build_ui(self):
@@ -124,22 +127,22 @@ class PythonCompiler(QMainWindow):
 
         heading = QVBoxLayout()
         title = QLabel("Python Compiler")
-        title.setObjectName("Title")
+        title.setObjectName("PageTitle")
         subtitle = QLabel("Build standalone Windows applications with PyInstaller through GitPortable.")
-        subtitle.setObjectName("Subtitle")
+        subtitle.setObjectName("Description")
         heading.addWidget(title)
         heading.addWidget(subtitle)
         outer.addLayout(heading)
 
         panel = QFrame()
-        panel.setObjectName("Panel")
+        panel.setObjectName("Card")
         form = QGridLayout(panel)
         form.setContentsMargins(16, 16, 16, 16)
         form.setHorizontalSpacing(10)
         form.setVerticalSpacing(12)
 
         section = QLabel("BUILD CONFIGURATION")
-        section.setObjectName("Section")
+        section.setObjectName("SectionTitle")
         form.addWidget(section, 0, 0, 1, 3)
 
         form.addWidget(QLabel("Python file"), 1, 0)
@@ -192,12 +195,12 @@ class PythonCompiler(QMainWindow):
         outer.addWidget(self.status)
 
         log_panel = QFrame()
-        log_panel.setObjectName("Panel")
+        log_panel.setObjectName("Card")
         log_layout = QVBoxLayout(log_panel)
         log_layout.setContentsMargins(14, 12, 14, 14)
         log_head = QHBoxLayout()
         log_title = QLabel("TERMINAL OUTPUT")
-        log_title.setObjectName("Section")
+        log_title.setObjectName("SectionTitle")
         log_head.addWidget(log_title)
         log_head.addStretch()
         clear_log = QPushButton("Clear")
@@ -205,16 +208,84 @@ class PythonCompiler(QMainWindow):
         log_head.addWidget(clear_log)
         log_layout.addLayout(log_head)
         self.log_view = QPlainTextEdit()
+        self.log_view.setObjectName("Log")
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(1500)
-        self.log_view.setPlaceholderText("Build commands and terminal launch details will appear here.")
+        self.log_view.setPlaceholderText("Terminal setup messages will appear here.")
         log_layout.addWidget(self.log_view, 1)
-        outer.addWidget(log_panel, 1)
+        outer.addWidget(log_panel)
 
-        foot = QLabel("Compilation runs in a separate GitPortable Bash terminal. Keep that terminal open to view the build result.")
+        terminal_panel = QFrame()
+        terminal_panel.setObjectName("Card")
+        terminal_layout = QVBoxLayout(terminal_panel)
+        terminal_layout.setContentsMargins(12, 10, 12, 12)
+        terminal_header = QHBoxLayout()
+        terminal_title = QLabel("EMBEDDED GITPORTABLE TERMINAL")
+        terminal_title.setObjectName("SectionTitle")
+        terminal_header.addWidget(terminal_title)
+        terminal_header.addStretch()
+        self.start_terminal_button = QPushButton("Start terminal")
+        self.start_terminal_button.clicked.connect(self._start_embedded_terminal)
+        terminal_header.addWidget(self.start_terminal_button)
+        terminal_layout.addLayout(terminal_header)
+        self.terminal_host_layout = QVBoxLayout()
+        self.terminal_host_layout.setContentsMargins(0, 0, 0, 0)
+        terminal_layout.addLayout(self.terminal_host_layout, 1)
+        outer.addWidget(terminal_panel, 2)
+
+        foot = QLabel("The GitPortable Bash terminal is embedded directly in this window. Compilation output appears there.")
         foot.setObjectName("Subtitle")
         foot.setWordWrap(True)
         outer.addWidget(foot)
+
+    def _load_embedded_terminal(self):
+        """Reuse PocketTerm's native Windows terminal-embedding implementation."""
+        main_file = Path(__file__).resolve().with_name("PocketTerm.py")
+        if os.name != "nt":
+            self.log_view.appendPlainText("Embedded Git Bash window hosting is supported on Windows only.")
+            return
+        if not main_file.is_file():
+            self.log_view.appendPlainText(f"PocketTerm.py not found beside this compiler: {main_file}")
+            return
+        try:
+            spec = importlib.util.spec_from_file_location("pocketterm_embedding_runtime", main_file)
+            if spec is None or spec.loader is None:
+                raise RuntimeError("Could not load PocketTerm's terminal embedding module.")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+
+            # Use the exact stylesheet and accent palette used by the main PocketTerm app.
+            # Settings() reads the same Config/settings.json, including a custom accent.
+            theme_settings = module.Settings(module.SETTINGS_FILE)
+            app = QApplication.instance()
+            if app is not None:
+                app.setStyleSheet(module.build_style(theme_settings.data))
+
+            settings = dict(module.Settings.DEFAULTS)
+            settings["terminal_direct_launch"] = True
+            self.embedded_terminal = module.EmbeddedGitBash(settings, self)
+            self.terminal_host_layout.addWidget(self.embedded_terminal)
+            self.embedded_terminal.setMinimumHeight(210)
+            self._start_embedded_terminal()
+        except Exception as exc:
+            self.embedded_terminal = None
+            self.log_view.appendPlainText(f"Could not initialize embedded terminal: {exc}")
+
+    def _start_embedded_terminal(self):
+        if self.embedded_terminal is None:
+            self.status.setText("Embedded terminal is unavailable. Check PocketTerm.py is beside this file.")
+            self.status.setStyleSheet(f"color: {RED};")
+            return
+        target = str(Path(__file__).resolve().parent)
+        self.embedded_terminal.start(target)
+        self.status.setText("Starting embedded GitPortable terminal...")
+        self.status.setStyleSheet(f"color: {YELLOW};")
+
+    def closeEvent(self, event):
+        if self.embedded_terminal is not None:
+            self.embedded_terminal.shutdown()
+        super().closeEvent(event)
 
     def _refresh_terminal_status(self):
         if self.bash_path:
@@ -286,61 +357,39 @@ class PythonCompiler(QMainWindow):
                      "--specpath", str(output_dir),
                      str(script.resolve())])
 
-        # Quote each argument for Git Bash. PyInstaller is run using the Python
-        # environment available in the GitPortable login shell.
+        # Send the build command to the already-embedded GitPortable Bash session.
         command = "python -m PyInstaller " + " ".join(shlex.quote(a) for a in args)
         command += "; result=$?; echo; if [ $result -eq 0 ]; then "
-        command += "echo 'BUILD SUCCEEDED'; else echo \"BUILD FAILED (exit code $result)\"; fi; "
-        command += "echo; read -r -p 'Press Enter to close this build session...'"
+        command += "echo 'BUILD SUCCEEDED'; else echo \"BUILD FAILED (exit code $result)\"; fi"
 
-        self.log_view.appendPlainText("Launching GitPortable terminal...")
-        self.log_view.appendPlainText("$ " + command.split("; result=")[0])
-        self.status.setText("Build terminal launched. Check the GitPortable terminal window.")
-        self.status.setStyleSheet(f"color: {YELLOW};")
-        self.compile_button.setEnabled(False)
-
-        try:
-            env = os.environ.copy()
-            portable_home = PORTABLE_ROOT / "Data" / "home"
-            if portable_home.is_dir():
-                env["HOME"] = str(portable_home)
-            if self.mintty_path:
-                # mintty provides the same terminal UI used by Git Bash.
-                subprocess.Popen(
-                    [str(self.mintty_path), "-i", "/git-bash.exe",
-                     str(self.bash_path), "--login", "-i", "-c", command],
-                    cwd=str(script.parent), env=env,
-                    creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
-                    close_fds=True
-                )
-            else:
-                # Fallback: open Git's Bash in a new Windows console.
-                subprocess.Popen(
-                    [str(self.bash_path), "--login", "-c", command],
-                    cwd=str(script.parent), env=env,
-                    creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10),
-                    close_fds=True
-                )
-        except OSError as exc:
-            self.compile_button.setEnabled(True)
-            self.status.setText("Could not launch GitPortable terminal.")
-            self.status.setStyleSheet(f"color: {RED};")
-            self.log_view.appendPlainText(str(exc))
-            QMessageBox.critical(self, "Terminal launch failed", str(exc))
+        if self.embedded_terminal is None:
+            QMessageBox.critical(
+                self, "Embedded terminal unavailable",
+                "The embedded GitPortable terminal could not be initialized. Make sure PocketTerm.py is in the same folder as python_compiler.py."
+            )
+            return
+        if not self.embedded_terminal.hwnd:
+            self._start_embedded_terminal()
+            self.status.setText("Wait for the embedded terminal to appear, then click Compile again.")
+            self.status.setStyleSheet(f"color: {YELLOW};")
             return
 
-        # Re-enable the button shortly after launch; the terminal owns the build process.
-        self.compile_button.setEnabled(True)
-        self.status.setText("Build running in GitPortable terminal.")
+        if not self.embedded_terminal.send_text(command + "\n"):
+            self.status.setText("Could not send the build command to GitPortable terminal.")
+            self.status.setStyleSheet(f"color: {RED};")
+            return
+
+        self.embedded_terminal.focus_soon()
+        self.status.setText("Build command sent. Watch the embedded terminal for progress and errors.")
         self.status.setStyleSheet(f"color: {GREEN};")
-        self.log_view.appendPlainText("Build command sent to GitPortable. The terminal window contains live compiler output.")
+        self.log_view.appendPlainText(f"Build started for: {script}")
+        self.log_view.appendPlainText("Output folder: " + str(output_dir / "dist"))
 
 
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
     app.setStyle("Fusion")
-    app.setStyleSheet(qss())
     window = PythonCompiler()
     window.show()
     return app.exec()
