@@ -239,8 +239,10 @@ class Settings:
         "enabled_plugins": [],                              # only these plugins are executed
         "auto_update": True, "update_hash": "",  # GitHub auto update
         "workspaces": [],                                   # saved Workspaces
+        "passcode_hash": "", "passcode_salt": "",           # startup passcode (empty = no passcode)
     }
-    STR_LISTS = ("pinned_projects", "recent_projects", "nav_collapsed", "enabled_plugins")
+    SECRET_KEYS = ("passcode_hash", "passcode_salt")        # never exported or imported
+    STR_LISTS =("pinned_projects", "recent_projects", "nav_collapsed", "enabled_plugins")
     PATH_KEYS = ("launcher_path", "bash_path", "git_path", "vscode_exe", "firefox_path")
 
     def __init__(self, path):
@@ -293,11 +295,11 @@ class Settings:
             return out
         return None
 
-    def _merge(self, raw):
+    def _merge(self, raw, skip=()):
         """Copy known keys (with valid values) from raw. Returns how many were applied."""
         count = 0
         for key, default in self.DEFAULTS.items():
-            if key in raw:
+            if key in raw and key not in skip:
                 cleaned = self._clean(key, raw[key], default)
                 if cleaned is not None:
                     self.data[key] = cleaned
@@ -345,7 +347,8 @@ class Settings:
 
     def export_to(self, path):
         try:
-            Path(path).write_text(json.dumps(self.data, indent=2), encoding="utf-8")
+            out = {k: v for k, v in self.data.items() if k not in self.SECRET_KEYS}
+            Path(path).write_text(json.dumps(out, indent=2), encoding="utf-8")
         except OSError as e:
             return f"Couldn't write file: {e}"
 
@@ -356,7 +359,7 @@ class Settings:
             return f"Couldn't read file: {e}"
         if not isinstance(raw, dict):
             return "That file isn't a PocketTerm settings file."
-        if self._merge(raw) == 0:
+        if self._merge(raw, self.SECRET_KEYS) == 0:
             return "No recognised settings found in that file."
         self.save()
 
@@ -1068,6 +1071,81 @@ class RowDelegate(QStyledItemDelegate):
                 painter.drawText(QRect(left, rect.top() + top, text_w, h), Qt.AlignLeft | Qt.AlignVCenter,
                                  QFontMetrics(font).elidedText(text, Qt.ElideRight, text_w))
         painter.restore()
+
+
+PASSCODE_ITERATIONS = 200_000
+PASSCODE_MIN_LEN = 4
+
+
+def hash_passcode(passcode, salt_hex=None):
+    """Return (salt_hex, hash_hex) using salted PBKDF2-SHA256."""
+    salt = bytes.fromhex(salt_hex) if salt_hex else os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", passcode.encode("utf-8"), salt, PASSCODE_ITERATIONS)
+    return salt.hex(), digest.hex()
+
+
+def passcode_is_set(settings):
+    return bool(settings.get("passcode_hash")) and bool(settings.get("passcode_salt"))
+
+
+def check_passcode(settings, passcode):
+    """True if no passcode is set, or if `passcode` matches the stored one."""
+    if not passcode_is_set(settings):
+        return True
+    try:
+        _salt, digest = hash_passcode(passcode, settings.get("passcode_salt"))
+    except ValueError:
+        return False
+    return hmac.compare_digest(digest, settings.get("passcode_hash"))
+
+
+class LockDialog(QDialog):
+    """Shown before the main window. Cancelling or closing it counts as a failed unlock."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("Palette")
+        self.setWindowTitle("PocketTerm Locked")
+        self.setWindowFlags(Qt.Dialog | Qt.WindowStaysOnTopHint | Qt.CustomizeWindowHint
+                            | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
+        self.setModal(True)
+        self.setFixedWidth(360)
+        self.entered = ""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(12)
+        layout.addWidget(QLabel("PocketTerm is locked"), alignment=Qt.AlignHCenter)
+        hint = QLabel("Enter your passcode to continue.\nA wrong passcode closes the app.")
+        hint.setObjectName("Muted")
+        hint.setAlignment(Qt.AlignCenter)
+        layout.addWidget(hint)
+        self.edit = QLineEdit()
+        self.edit.setEchoMode(QLineEdit.Password)
+        self.edit.setPlaceholderText("Passcode")
+        self.edit.returnPressed.connect(self._submit)
+        layout.addWidget(self.edit)
+        button = QPushButton("Unlock")
+        button.setObjectName("Primary")
+        button.setCursor(Qt.PointingHandCursor)
+        button.clicked.connect(self._submit)
+        layout.addWidget(button)
+        self.edit.setFocus()
+
+    def _submit(self):
+        self.entered = self.edit.text()
+        self.accept()
+
+
+def unlock_or_exit(settings):
+    """Block until the passcode is entered. Any wrong entry (or closing the dialog) exits the app."""
+    if not passcode_is_set(settings):
+        return
+    dialog = LockDialog()
+    if dialog.exec() == QDialog.Accepted and check_passcode(settings, dialog.entered):
+        log.info("Passcode accepted.")
+        return
+    log.warning("Passcode wrong or unlock cancelled; closing PocketTerm.")
+    sys.exit(0)
 
 
 class CommandPalette(QDialog):
@@ -5552,6 +5630,16 @@ class MainWindow(ExtrasMixin, QMainWindow):
                          ("Roll back update...", self.rollback_update))
         cl.addWidget(card)
 
+        # ----- Security -----
+        card, lay = self._make_card(
+            "Security", "Protect PocketTerm with a passcode. It is asked for every time the app starts; "
+            "a wrong passcode closes the app immediately.")
+        self.passcode_status = self._status_label(lay)
+        self._button_row(lay, ("Set / change passcode...", self.set_passcode, "Primary"),
+                         ("Remove passcode", self.remove_passcode, "Danger"))
+        cl.addWidget(card)
+        self._refresh_passcode_status()
+
         # ----- Folders -----
         card, lay = self._make_card("Folders", "Open PocketTerm's working folders in File Explorer.")
         self._button_row(lay, *[(n, lambda n=n: open_path(APP_DIR / n))
@@ -5574,6 +5662,64 @@ class MainWindow(ExtrasMixin, QMainWindow):
     @staticmethod
     def _labeled(text):
         return MainWindow._label(text, "Muted")
+
+    # ---------- passcode ----------
+
+    def _refresh_passcode_status(self):
+        if passcode_is_set(self.settings):
+            self._set_status(self.passcode_status, True, "A passcode is set. It is required at start-up.")
+        else:
+            self.passcode_status.setStyleSheet("")
+            self.passcode_status.setText("No passcode set. Anyone can open PocketTerm.")
+
+    def _ask_passcode(self, title, prompt):
+        text, ok = QInputDialog.getText(self, title, prompt, QLineEdit.Password)
+        return text if ok else None
+
+    def _verify_current_passcode(self):
+        """True if no passcode is set, or the user enters the current one correctly."""
+        if not passcode_is_set(self.settings):
+            return True
+        current = self._ask_passcode("Current passcode", "Enter the current passcode:")
+        if current is None:
+            return False
+        if not check_passcode(self.settings, current):
+            self._set_status(self.passcode_status, False, "Wrong passcode. Nothing was changed.")
+            return False
+        return True
+
+    def set_passcode(self):
+        if not self._verify_current_passcode():
+            return
+        new = self._ask_passcode("New passcode", f"Enter a new passcode (at least {PASSCODE_MIN_LEN} characters):")
+        if new is None:
+            return
+        if len(new) < PASSCODE_MIN_LEN:
+            self._set_status(self.passcode_status, False,
+                             f"The passcode must be at least {PASSCODE_MIN_LEN} characters.")
+            return
+        again = self._ask_passcode("Confirm passcode", "Enter the new passcode again:")
+        if again is None:
+            return
+        if again != new:
+            self._set_status(self.passcode_status, False, "The passcodes didn't match. Nothing was changed.")
+            return
+        salt, digest = hash_passcode(new)
+        self.settings.data["passcode_salt"] = salt
+        self.settings.set("passcode_hash", digest)
+        self._refresh_passcode_status()
+        self._set_status(self.passcode_status, True, "Passcode saved. It will be asked for next time PocketTerm starts.")
+
+    def remove_passcode(self):
+        if not passcode_is_set(self.settings):
+            self._refresh_passcode_status()
+            return
+        if not self._verify_current_passcode():
+            return
+        self.settings.data["passcode_salt"] = ""
+        self.settings.set("passcode_hash", "")
+        self._refresh_passcode_status()
+        self._set_status(self.passcode_status, True, "Passcode removed.")
 
     def _text_row(self, layout, key, placeholder):
         edit = QLineEdit(str(self.settings.get(key)))
@@ -6237,6 +6383,13 @@ if __name__ == "__main__":
             app.setWindowIcon(app_icon)
     print(ICON_STATUS)
     log.info("Starting PocketTerm. %s", ICON_STATUS)
+
+    # Passcode gate: runs before any window, terminal or background process is started.
+    _lock_settings = Settings(SETTINGS_FILE)
+    if passcode_is_set(_lock_settings):
+        app.setStyleSheet(build_style(_lock_settings))
+        unlock_or_exit(_lock_settings)
+        app.setStyleSheet("")
 
     window = MainWindow()
     if app_icon:
