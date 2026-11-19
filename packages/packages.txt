@@ -1,21 +1,18 @@
-# --- more single-file tools ---
-tokei =https://github.com/XAMPPRocky/tokei/releases/latest/download/tokei-x86_64-pc-windows-msvc.exe
+# --- single-file tools ---
+direnv =https://github.com/direnv/direnv/releases/latest/download/direnv.windows-amd64.exe
+fx =https://github.com/antonmedv/fx/releases/latest/download/fx_windows_amd64.exe
+mc =https://dl.min.io/client/mc/release/windows-amd64/mc.exe
+caddy =https://caddyserver.com/api/download?os=windows&arch=amd64
+rustup-init =https://win.rustup.rs/x86_64
 
-# --- python / js / dev toolchains (archives) ---
-uv =https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip
-ruff =https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
-deno =https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip
-bun =https://github.com/oven-sh/bun/releases/latest/download/bun-windows-x64.zip
+# --- file / task / dev workflow (archives) ---
+eza =https://github.com/eza-community/eza/releases/latest/download/eza.exe_x86_64-pc-windows-gnu.zip
+lf =https://github.com/gokcehan/lf/releases/latest/download/lf-windows-amd64.zip
+task =https://github.com/go-task/task/releases/latest/download/task_windows_amd64.zip
+act =https://github.com/nektos/act/releases/latest/download/act_Windows_x86_64.zip
 
-# --- terminal quality of life ---
-starship =https://github.com/starship/starship/releases/latest/download/starship-x86_64-pc-windows-msvc.zip
-yazi =https://github.com/sxyazi/yazi/releases/latest/download/yazi-x86_64-pc-windows-msvc.zip
-fastfetch =https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-windows-amd64.zip
-gdu =https://github.com/dundee/gdu/releases/latest/download/gdu_windows_amd64.exe.zip
+# --- AI (fits the PocketAi tab) ---
+ollama =https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip
 
-# --- networking / sharing ---
-ngrok =https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip
-curl =https://curl.se/windows/latest.cgi?p=win64-mingw.zip
-
-# --- android ---
-platform-tools =https://dl.google.com/android/repository/platform-tools-latest-windows.zip
+# --- system / debugging ---
+sysinternals =https://download.sysinternals.com/files/SysinternalsSuite.zip
