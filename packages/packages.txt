@@ -1,5 +1,30 @@
-# ===== single-file tools =====
-tealdeer =https://github.com/tealdeer-rs/tealdeer/releases/latest/download/tealdeer-windows-x86_64-msvc.exe
+# Pocket package list  (format: name =url)
+# Put this file at packages/packages.txt in your repo, then run: Pocket update
+#
+# Lines starting with # are comments. Entries that would clash with another
+# entry or with Git Bash are commented out below, each with the reason.
+# Everything marked "(unverified)" uses an asset name written from memory:
+# if it 404s, fix the filename on that project's release page.
+
+# =====================================================================
+# CORE: single-file tools (saved as <name>.exe, command is just <name>)
+# =====================================================================
+jq =https://github.com/jqlang/jq/releases/latest/download/jq-windows-amd64.exe
+yq =https://github.com/mikefarah/yq/releases/latest/download/yq_windows_amd64.exe
+yt-dlp =https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+yt-dlp-nightly =https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe
+cloudflared =https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
+busybox =https://frippery.org/files/busybox/busybox64.exe
+7zr =https://www.7-zip.org/a/7zr.exe
+tokei =https://github.com/XAMPPRocky/tokei/releases/latest/download/tokei-x86_64-pc-windows-msvc.exe
+direnv =https://github.com/direnv/direnv/releases/latest/download/direnv.windows-amd64.exe
+fx =https://github.com/antonmedv/fx/releases/latest/download/fx_windows_amd64.exe
+walk =https://github.com/antonmedv/walk/releases/latest/download/walk_windows_amd64.exe
+mc =https://dl.min.io/client/mc/release/windows-amd64/mc.exe
+minio =https://dl.min.io/server/minio/release/windows-amd64/minio.exe
+caddy =https://caddyserver.com/api/download?os=windows&arch=amd64
+rustup-init =https://win.rustup.rs/x86_64
+tldr =https://github.com/tealdeer-rs/tealdeer/releases/latest/download/tealdeer-windows-x86_64-msvc.exe
 hadolint =https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Windows-x86_64.exe
 dasel =https://github.com/TomWright/dasel/releases/latest/download/dasel_windows_amd64.exe
 websocat =https://github.com/vi/websocat/releases/latest/download/websocat.x86_64-pc-windows-gnu.exe
@@ -21,17 +46,116 @@ micromamba =https://github.com/mamba-org/micromamba-releases/releases/latest/dow
 oh-my-posh =https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/posh-windows-amd64.exe
 marksman =https://github.com/artempyanykh/marksman/releases/latest/download/marksman.exe
 broot =https://dystroy.org/broot/download/x86_64-pc-windows-gnu/broot.exe
+dbmate =https://github.com/amacneil/dbmate/releases/latest/download/dbmate-windows-amd64.exe
+atlas =https://release.ariga.io/atlas/atlas-windows-amd64-latest.exe
+mkcert =https://dl.filippo.io/mkcert/latest?for=windows/amd64
+nuget =https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
+vswhere =https://github.com/microsoft/vswhere/releases/latest/download/vswhere.exe
+bazelisk =https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-windows-amd64.exe
+buf =https://github.com/bufbuild/buf/releases/latest/download/buf-Windows-x86_64.exe
+mailhog =https://github.com/mailhog/MailHog/releases/latest/download/MailHog_windows_amd64.exe
+rcedit =https://github.com/electron/rcedit/releases/latest/download/rcedit-x64.exe
+rattler-build =https://github.com/prefix-dev/rattler-build/releases/latest/download/rattler-build-x86_64-pc-windows-msvc.exe
+spectral =https://github.com/stoplightio/spectral/releases/latest/download/spectral.exe
+tfsec =https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-windows-amd64.exe
+kube-linter =https://github.com/stackrox/kube-linter/releases/latest/download/kube-linter.exe
+fabric =https://github.com/danielmiessler/fabric/releases/latest/download/fabric-windows-amd64.exe
 
-# ===== Sysinternals singles (live.sysinternals.com) =====
+# =====================================================================
+# PuTTY suite (single files)
+# =====================================================================
+putty =https://the.earth.li/~sgtatham/putty/latest/w64/putty.exe
+plink =https://the.earth.li/~sgtatham/putty/latest/w64/plink.exe
+pscp =https://the.earth.li/~sgtatham/putty/latest/w64/pscp.exe
+psftp =https://the.earth.li/~sgtatham/putty/latest/w64/psftp.exe
+puttygen =https://the.earth.li/~sgtatham/putty/latest/w64/puttygen.exe
+pageant =https://the.earth.li/~sgtatham/putty/latest/w64/pageant.exe
+
+# =====================================================================
+# Sysinternals singles (live.sysinternals.com)
+# Run each once with -accepteula, or set HKCU\Software\Sysinternals EulaAccepted=1
+# The full suite zip is below, commented out, so you don't get both.
+# =====================================================================
 procexp =https://live.sysinternals.com/procexp64.exe
 procmon =https://live.sysinternals.com/Procmon64.exe
 autoruns =https://live.sysinternals.com/autoruns64.exe
 tcpview =https://live.sysinternals.com/Tcpview64.exe
+tcpvcon =https://live.sysinternals.com/tcpvcon64.exe
 handle =https://live.sysinternals.com/handle64.exe
 psexec =https://live.sysinternals.com/PsExec64.exe
 du =https://live.sysinternals.com/du64.exe
+procdump =https://live.sysinternals.com/procdump64.exe
+sigcheck =https://live.sysinternals.com/sigcheck64.exe
+sysstrings =https://live.sysinternals.com/strings64.exe
+pslist =https://live.sysinternals.com/pslist64.exe
+psping =https://live.sysinternals.com/psping64.exe
+accesschk =https://live.sysinternals.com/accesschk64.exe
+listdlls =https://live.sysinternals.com/Listdlls64.exe
+streams =https://live.sysinternals.com/streams64.exe
+whois =https://live.sysinternals.com/whois64.exe
+junction =https://live.sysinternals.com/junction64.exe
+sdelete =https://live.sysinternals.com/sdelete64.exe
+dbgview =https://live.sysinternals.com/Dbgview.exe
+rammap =https://live.sysinternals.com/RAMMap64.exe
+vmmap =https://live.sysinternals.com/vmmap64.exe
+coreinfo =https://live.sysinternals.com/Coreinfo64.exe
+contig =https://live.sysinternals.com/contig64.exe
+zoomit =https://live.sysinternals.com/ZoomIt64.exe
+bginfo =https://live.sysinternals.com/Bginfo64.exe
+adexplorer =https://live.sysinternals.com/ADExplorer64.exe
+disk2vhd =https://live.sysinternals.com/disk2vhd64.exe
+pipelist =https://live.sysinternals.com/pipelist64.exe
+clockres =https://live.sysinternals.com/clockres64.exe
+hex2dec =https://live.sysinternals.com/hex2dec64.exe
+syssync =https://live.sysinternals.com/sync64.exe
+regusage =https://live.sysinternals.com/ru64.exe
+diskview =https://live.sysinternals.com/DiskView64.exe
+ntfsinfo =https://live.sysinternals.com/ntfsinfo64.exe
+logonsessions =https://live.sysinternals.com/logonsessions64.exe
+movefile =https://live.sysinternals.com/movefile64.exe
+pendmoves =https://live.sysinternals.com/pendmoves64.exe
+regjump =https://live.sysinternals.com/regjump.exe
+volumeid =https://live.sysinternals.com/Volumeid64.exe
+winobj =https://live.sysinternals.com/Winobj.exe
+accessenum =https://live.sysinternals.com/AccessEnum.exe
+autologon =https://live.sysinternals.com/Autologon64.exe
+shareenum =https://live.sysinternals.com/ShareEnum64.exe
+findlinks =https://live.sysinternals.com/FindLinks64.exe
+notmyfault =https://live.sysinternals.com/notmyfault64.exe
+diskmon =https://live.sysinternals.com/Diskmon64.exe
+desktops =https://live.sysinternals.com/Desktops64.exe
+cacheset =https://live.sysinternals.com/CacheSet64.exe
+regdelnull =https://live.sysinternals.com/RegDelNull64.exe
+shellrunas =https://live.sysinternals.com/ShellRunas.exe
+# Full suites (overlap the singles above, so off by default):
+# sysinternals =https://download.sysinternals.com/files/SysinternalsSuite.zip
+sysmon =https://download.sysinternals.com/files/Sysmon.zip
+pstools =https://download.sysinternals.com/files/PSTools.zip
 
-# ===== archives: CLI / terminal tools =====
+# =====================================================================
+# ARCHIVES: media / files / search
+# (extracted; the folder holding the exe is added to PATH)
+# =====================================================================
+ffmpeg =https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+# ffmpeg-gpl =https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip
+# ^ off: also provides ffmpeg.exe, so it clashes with the entry above
+rclone =https://downloads.rclone.org/rclone-current-windows-amd64.zip
+ripgrep =https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip
+fd =https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-x86_64-pc-windows-msvc.zip
+bat =https://github.com/sharkdp/bat/releases/download/v0.25.0/bat-v0.25.0-x86_64-pc-windows-msvc.zip
+fzf =https://github.com/junegunn/fzf/releases/download/v0.60.3/fzf-0.60.3-windows_amd64.zip
+eza =https://github.com/eza-community/eza/releases/latest/download/eza.exe_x86_64-pc-windows-gnu.zip
+lf =https://github.com/gokcehan/lf/releases/latest/download/lf-windows-amd64.zip
+yazi =https://github.com/sxyazi/yazi/releases/latest/download/yazi-x86_64-pc-windows-msvc.zip
+xplr =https://github.com/sayanarijit/xplr/releases/latest/download/xplr-windows.zip
+gdu =https://github.com/dundee/gdu/releases/latest/download/gdu_windows_amd64.exe.zip
+pngquant =https://pngquant.org/pngquant-windows.zip
+
+# =====================================================================
+# ARCHIVES: terminal / CLI quality of life
+# =====================================================================
+starship =https://github.com/starship/starship/releases/latest/download/starship-x86_64-pc-windows-msvc.zip
+fastfetch =https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-windows-amd64.zip
 bottom =https://github.com/ClementTsang/bottom/releases/latest/download/bottom_x86_64-pc-windows-msvc.zip
 difftastic =https://github.com/Wilfred/difftastic/releases/latest/download/difft-x86_64-pc-windows-msvc.zip
 ouch =https://github.com/ouch-org/ouch/releases/latest/download/ouch-x86_64-pc-windows-msvc.zip
@@ -41,26 +165,81 @@ ghq =https://github.com/x-motemen/ghq/releases/latest/download/ghq_windows_amd64
 ast-grep =https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-pc-windows-msvc.zip
 neovim =https://github.com/neovim/neovim/releases/latest/download/nvim-win64.zip
 duckdb =https://github.com/duckdb/duckdb/releases/latest/download/duckdb_cli-windows-amd64.zip
+task =https://github.com/go-task/task/releases/latest/download/task_windows_amd64.zip
+act =https://github.com/nektos/act/releases/latest/download/act_Windows_x86_64.zip
+gsudo =https://github.com/gerardog/gsudo/releases/latest/download/gsudo.portable.zip
+cmder =https://github.com/cmderdev/cmder/releases/latest/download/cmder_mini.zip
+elvish =https://dl.elv.sh/windows-amd64/elvish-HEAD.zip
+gping =https://github.com/orf/gping/releases/latest/download/gping-Windows-msvc-x86_64.zip
+television =https://github.com/alexpasmantier/television/releases/latest/download/television-x86_64-pc-windows-msvc.zip
+zizmor =https://github.com/woodruffw/zizmor/releases/latest/download/zizmor-x86_64-pc-windows-msvc.zip
+opencode =https://github.com/sst/opencode/releases/latest/download/opencode-windows-x64.zip
+ollama =https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip
+autohotkey =https://www.autohotkey.com/download/ahk-v2.zip
+nircmd =https://www.nirsoft.net/utils/nircmd-x64.zip
+bitwarden-cli =https://vault.bitwarden.com/download/?app=cli&platform=windows
+# curl =https://curl.se/windows/latest.cgi?p=win64-mingw.zip
+# ^ off: Git for Windows already ships curl
+# openssh =https://github.com/PowerShell/Win32-OpenSSH/releases/latest/download/OpenSSH-Win64.zip
+# ^ off: would shadow Git's ssh/scp/sftp unless placed after Git on PATH
 
-# ===== archives: languages / build / formatters =====
-fnm =https://github.com/Schniz/fnm/releases/latest/download/fnm-windows.zip
+# =====================================================================
+# ARCHIVES: languages / runtimes / build / formatters
+# =====================================================================
+uv =https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip
+ruff =https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
+ty =https://github.com/astral-sh/ty/releases/latest/download/ty-x86_64-pc-windows-msvc.zip
+maturin =https://github.com/PyO3/maturin/releases/latest/download/maturin-x86_64-pc-windows-msvc.zip
+hatch =https://github.com/pypa/hatch/releases/latest/download/hatch-x86_64-pc-windows-msvc.zip
 pixi =https://github.com/prefix-dev/pixi/releases/latest/download/pixi-x86_64-pc-windows-msvc.zip
+mise =https://mise.jdx.dev/mise-latest-windows-x64.zip
+deno =https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip
+bun =https://github.com/oven-sh/bun/releases/latest/download/bun-windows-x64.zip
+fnm =https://github.com/Schniz/fnm/releases/latest/download/fnm-windows.zip
+# nvm =https://github.com/coreybutler/nvm-windows/releases/latest/download/nvm-noinstall.zip
+# ^ off: needs NVM_HOME/NVM_SYMLINK and symlink rights, conflicts with a self-contained Node
 wasmer =https://github.com/wasmerio/wasmer/releases/latest/download/wasmer-windows-amd64.zip
+trunk =https://github.com/trunk-rs/trunk/releases/latest/download/trunk-x86_64-pc-windows-msvc.zip
 cargo-binstall =https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-pc-windows-msvc.zip
 rust-analyzer =https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-pc-windows-msvc.zip
 ninja =https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip
 dprint =https://github.com/dprint/dprint/releases/latest/download/dprint-x86_64-pc-windows-msvc.zip
 taplo =https://github.com/tamasfe/taplo/releases/latest/download/taplo-windows-x86_64.zip
+stylua =https://github.com/JohnnyMorganz/StyLua/releases/latest/download/stylua-windows-x86_64.zip
+shellcheck =https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.zip
 typst =https://github.com/typst/typst/releases/latest/download/typst-x86_64-pc-windows-msvc.zip
 goreleaser =https://github.com/goreleaser/goreleaser/releases/latest/download/goreleaser_Windows_x86_64.zip
 staticcheck =https://github.com/dominikh/go-tools/releases/latest/download/staticcheck_windows_amd64.zip
+vlang =https://github.com/vlang/v/releases/latest/download/v_windows.zip
+dart =https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-windows-x64-release.zip
+jdk21 =https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jdk/hotspot/normal/eclipse
+php =https://windows.php.net/downloads/releases/latest/php-8.4-nts-Win32-vs17-x64-latest.zip
+scala-cli =https://github.com/VirtusLab/scala-cli/releases/latest/download/scala-cli-x86_64-pc-win32.zip
+coursier =https://github.com/coursier/coursier/releases/latest/download/cs-x86_64-pc-win32.zip
+jbang =https://github.com/jbangdev/jbang/releases/latest/download/jbang.zip
+stack =https://get.haskellstack.org/stable/windows-x86_64.zip
 
-# ===== archives: infra / k8s =====
+# =====================================================================
+# ARCHIVES: infra / k8s / cloud / db / mail / crypto
+# =====================================================================
 k9s =https://github.com/derailed/k9s/releases/latest/download/k9s_Windows_amd64.zip
 tflint =https://github.com/terraform-linters/tflint/releases/latest/download/tflint_windows_amd64.zip
+kubeconform =https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-windows-amd64.zip
+migrate =https://github.com/golang-migrate/migrate/releases/latest/download/migrate.windows-amd64.zip
+mailpit =https://github.com/axllent/mailpit/releases/latest/download/mailpit-windows-amd64.zip
+azcopy =https://aka.ms/downloadazcopy-v10-windows
+age =https://dl.filippo.io/age/latest?for=windows/amd64
+ngrok =https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip
+platform-tools =https://dl.google.com/android/repository/platform-tools-latest-windows.zip
 
-# ===== archives: utilities =====
-autohotkey =https://www.autohotkey.com/download/ahk-v2.zip
-nircmd =https://www.nirsoft.net/utils/nircmd-x64.zip
-pngquant =https://pngquant.org/pngquant-windows.zip
-bitwarden-cli =https://vault.bitwarden.com/download/?app=cli&platform=windows
+# =====================================================================
+# ARCHIVES: inspection / reverse engineering / hardware / NirSoft
+# =====================================================================
+dependencies =https://github.com/lucasg/Dependencies/releases/latest/download/Dependencies_x64_Release.zip
+dnspy =https://github.com/dnSpy/dnSpy/releases/latest/download/dnSpy-net-win64.zip
+resourcehacker =https://www.angusj.com/resourcehacker/resource_hacker.zip
+librehardwaremonitor =https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/latest/download/LibreHardwareMonitor.zip
+cports =https://www.nirsoft.net/utils/cports-x64.zip
+usbdeview =https://www.nirsoft.net/utils/usbdeview-x64.zip
+regscanner =https://www.nirsoft.net/utils/regscanner-x64.zip
+serviwin =https://www.nirsoft.net/utils/serviwin.zip
