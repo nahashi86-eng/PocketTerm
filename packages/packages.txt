@@ -1,2 +1,19 @@
-nmap =hi.com
-Ai =huggingface.co/unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF/resolve/main/DeepSeek-R1-Distill-Llama-8B-UD-IQ1_S.gguf
+# Pocket package list  (format: name =url)
+# Put this file at packages/packages.txt in your repo, then run: Pocket update
+
+# --- single-file tools (saved as <name>.exe, command is just <name>) ---
+jq =https://github.com/jqlang/jq/releases/latest/download/jq-windows-amd64.exe
+yq =https://github.com/mikefarah/yq/releases/latest/download/yq_windows_amd64.exe
+yt-dlp =https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
+cloudflared =https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
+busybox =https://frippery.org/files/busybox/busybox64.exe
+7zr =https://www.7-zip.org/a/7zr.exe
+
+# --- archives (extracted, folder added to PATH) ---
+ffmpeg =https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+rclone =https://downloads.rclone.org/rclone-current-windows-amd64.zip
+ripgrep =https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip
+fd =https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-x86_64-pc-windows-msvc.zip
+bat =https://github.com/sharkdp/bat/releases/download/v0.25.0/bat-v0.25.0-x86_64-pc-windows-msvc.zip
+fzf =https://github.com/junegunn/fzf/releases/download/v0.60.3/fzf-0.60.3-windows_amd64.zip
+nmap =https://nmap.org/dist/nmap-7.95-win32.zip
