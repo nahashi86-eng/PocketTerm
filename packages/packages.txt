@@ -16,4 +16,3 @@ ripgrep =https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-
 fd =https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-x86_64-pc-windows-msvc.zip
 bat =https://github.com/sharkdp/bat/releases/download/v0.25.0/bat-v0.25.0-x86_64-pc-windows-msvc.zip
 fzf =https://github.com/junegunn/fzf/releases/download/v0.60.3/fzf-0.60.3-windows_amd64.zip
-nmap =https://nmap.org/dist/nmap-7.95-win32.zip
