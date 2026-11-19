@@ -1,18 +1,21 @@
-# Pocket package list  (format: name =url)
-# Put this file at packages/packages.txt in your repo, then run: Pocket update
+# --- more single-file tools ---
+tokei =https://github.com/XAMPPRocky/tokei/releases/latest/download/tokei-x86_64-pc-windows-msvc.exe
 
-# --- single-file tools (saved as <name>.exe, command is just <name>) ---
-jq =https://github.com/jqlang/jq/releases/latest/download/jq-windows-amd64.exe
-yq =https://github.com/mikefarah/yq/releases/latest/download/yq_windows_amd64.exe
-yt-dlp =https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
-cloudflared =https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
-busybox =https://frippery.org/files/busybox/busybox64.exe
-7zr =https://www.7-zip.org/a/7zr.exe
+# --- python / js / dev toolchains (archives) ---
+uv =https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip
+ruff =https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-pc-windows-msvc.zip
+deno =https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip
+bun =https://github.com/oven-sh/bun/releases/latest/download/bun-windows-x64.zip
 
-# --- archives (extracted, folder added to PATH) ---
-ffmpeg =https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
-rclone =https://downloads.rclone.org/rclone-current-windows-amd64.zip
-ripgrep =https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip
-fd =https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-x86_64-pc-windows-msvc.zip
-bat =https://github.com/sharkdp/bat/releases/download/v0.25.0/bat-v0.25.0-x86_64-pc-windows-msvc.zip
-fzf =https://github.com/junegunn/fzf/releases/download/v0.60.3/fzf-0.60.3-windows_amd64.zip
+# --- terminal quality of life ---
+starship =https://github.com/starship/starship/releases/latest/download/starship-x86_64-pc-windows-msvc.zip
+yazi =https://github.com/sxyazi/yazi/releases/latest/download/yazi-x86_64-pc-windows-msvc.zip
+fastfetch =https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-windows-amd64.zip
+gdu =https://github.com/dundee/gdu/releases/latest/download/gdu_windows_amd64.exe.zip
+
+# --- networking / sharing ---
+ngrok =https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip
+curl =https://curl.se/windows/latest.cgi?p=win64-mingw.zip
+
+# --- android ---
+platform-tools =https://dl.google.com/android/repository/platform-tools-latest-windows.zip
