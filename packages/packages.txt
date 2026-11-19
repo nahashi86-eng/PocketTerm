@@ -1,1 +1,2 @@
 nmap =hi.com
+Ai =huggingface.co/unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF/resolve/main/DeepSeek-R1-Distill-Llama-8B-UD-IQ1_S.gguf
