@@ -1,18 +1,66 @@
-# --- single-file tools ---
-direnv =https://github.com/direnv/direnv/releases/latest/download/direnv.windows-amd64.exe
-fx =https://github.com/antonmedv/fx/releases/latest/download/fx_windows_amd64.exe
-mc =https://dl.min.io/client/mc/release/windows-amd64/mc.exe
-caddy =https://caddyserver.com/api/download?os=windows&arch=amd64
-rustup-init =https://win.rustup.rs/x86_64
+# ===== single-file tools =====
+tealdeer =https://github.com/tealdeer-rs/tealdeer/releases/latest/download/tealdeer-windows-x86_64-msvc.exe
+hadolint =https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Windows-x86_64.exe
+dasel =https://github.com/TomWright/dasel/releases/latest/download/dasel_windows_amd64.exe
+websocat =https://github.com/vi/websocat/releases/latest/download/websocat.x86_64-pc-windows-gnu.exe
+gallery-dl =https://github.com/mikf/gallery-dl/releases/latest/download/gallery-dl.exe
+koboldcpp =https://github.com/LostRuins/koboldcpp/releases/latest/download/koboldcpp.exe
+oha =https://github.com/hatoo/oha/releases/latest/download/oha-windows-amd64.exe
+bombardier =https://github.com/codesenberg/bombardier/releases/latest/download/bombardier-windows-amd64.exe
+hey =https://hey-release.s3.us-east-2.amazonaws.com/hey_windows_amd64
+cosign =https://github.com/sigstore/cosign/releases/latest/download/cosign-windows-amd64.exe
+kind =https://github.com/kubernetes-sigs/kind/releases/latest/download/kind-windows-amd64
+minikube =https://storage.googleapis.com/minikube/releases/latest/minikube-windows-amd64.exe
+skaffold =https://storage.googleapis.com/skaffold/releases/latest/skaffold-windows-amd64.exe
+argocd =https://github.com/argoproj/argo-cd/releases/latest/download/argocd-windows-amd64.exe
+opa =https://github.com/open-policy-agent/opa/releases/latest/download/opa_windows_amd64.exe
+terragrunt =https://github.com/gruntwork-io/terragrunt/releases/latest/download/terragrunt_windows_amd64.exe
+biome =https://github.com/biomejs/biome/releases/latest/download/biome-win32-x64.exe
+pnpm =https://github.com/pnpm/pnpm/releases/latest/download/pnpm-win-x64.exe
+micromamba =https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-win-64
+oh-my-posh =https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/posh-windows-amd64.exe
+marksman =https://github.com/artempyanykh/marksman/releases/latest/download/marksman.exe
+broot =https://dystroy.org/broot/download/x86_64-pc-windows-gnu/broot.exe
 
-# --- file / task / dev workflow (archives) ---
-eza =https://github.com/eza-community/eza/releases/latest/download/eza.exe_x86_64-pc-windows-gnu.zip
-lf =https://github.com/gokcehan/lf/releases/latest/download/lf-windows-amd64.zip
-task =https://github.com/go-task/task/releases/latest/download/task_windows_amd64.zip
-act =https://github.com/nektos/act/releases/latest/download/act_Windows_x86_64.zip
+# ===== Sysinternals singles (live.sysinternals.com) =====
+procexp =https://live.sysinternals.com/procexp64.exe
+procmon =https://live.sysinternals.com/Procmon64.exe
+autoruns =https://live.sysinternals.com/autoruns64.exe
+tcpview =https://live.sysinternals.com/Tcpview64.exe
+handle =https://live.sysinternals.com/handle64.exe
+psexec =https://live.sysinternals.com/PsExec64.exe
+du =https://live.sysinternals.com/du64.exe
 
-# --- AI (fits the PocketAi tab) ---
-ollama =https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip
+# ===== archives: CLI / terminal tools =====
+bottom =https://github.com/ClementTsang/bottom/releases/latest/download/bottom_x86_64-pc-windows-msvc.zip
+difftastic =https://github.com/Wilfred/difftastic/releases/latest/download/difft-x86_64-pc-windows-msvc.zip
+ouch =https://github.com/ouch-org/ouch/releases/latest/download/ouch-x86_64-pc-windows-msvc.zip
+scc =https://github.com/boyter/scc/releases/latest/download/scc_Windows_x86_64.zip
+peco =https://github.com/peco/peco/releases/latest/download/peco_windows_amd64.zip
+ghq =https://github.com/x-motemen/ghq/releases/latest/download/ghq_windows_amd64.zip
+ast-grep =https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-pc-windows-msvc.zip
+neovim =https://github.com/neovim/neovim/releases/latest/download/nvim-win64.zip
+duckdb =https://github.com/duckdb/duckdb/releases/latest/download/duckdb_cli-windows-amd64.zip
 
-# --- system / debugging ---
-sysinternals =https://download.sysinternals.com/files/SysinternalsSuite.zip
+# ===== archives: languages / build / formatters =====
+fnm =https://github.com/Schniz/fnm/releases/latest/download/fnm-windows.zip
+pixi =https://github.com/prefix-dev/pixi/releases/latest/download/pixi-x86_64-pc-windows-msvc.zip
+wasmer =https://github.com/wasmerio/wasmer/releases/latest/download/wasmer-windows-amd64.zip
+cargo-binstall =https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-pc-windows-msvc.zip
+rust-analyzer =https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-pc-windows-msvc.zip
+ninja =https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip
+dprint =https://github.com/dprint/dprint/releases/latest/download/dprint-x86_64-pc-windows-msvc.zip
+taplo =https://github.com/tamasfe/taplo/releases/latest/download/taplo-windows-x86_64.zip
+typst =https://github.com/typst/typst/releases/latest/download/typst-x86_64-pc-windows-msvc.zip
+goreleaser =https://github.com/goreleaser/goreleaser/releases/latest/download/goreleaser_Windows_x86_64.zip
+staticcheck =https://github.com/dominikh/go-tools/releases/latest/download/staticcheck_windows_amd64.zip
+
+# ===== archives: infra / k8s =====
+k9s =https://github.com/derailed/k9s/releases/latest/download/k9s_Windows_amd64.zip
+tflint =https://github.com/terraform-linters/tflint/releases/latest/download/tflint_windows_amd64.zip
+
+# ===== archives: utilities =====
+autohotkey =https://www.autohotkey.com/download/ahk-v2.zip
+nircmd =https://www.nirsoft.net/utils/nircmd-x64.zip
+pngquant =https://pngquant.org/pngquant-windows.zip
+bitwarden-cli =https://vault.bitwarden.com/download/?app=cli&platform=windows
