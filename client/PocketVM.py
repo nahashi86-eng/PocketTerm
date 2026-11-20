@@ -1,6 +1,6 @@
 import os
 import sys
-import time
+import shutil
 import subprocess
 
 from PySide6.QtCore import Qt, QTimer
@@ -15,9 +15,11 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
-    QSpinBox,
 )
 
 # ============================================================
@@ -37,7 +39,35 @@ ASSETS_DIR = os.path.abspath(
 ISO_DIR = os.path.join(ASSETS_DIR, "OperatingSystems")
 QEMU_DIR = os.path.join(ASSETS_DIR, "PocketVM", "qemu")
 QEMU_EXE = os.path.join(QEMU_DIR, "qemu-system-x86_64.exe")
+QEMU_SHARE = os.path.join(QEMU_DIR, "share")
+
+# Writable copy of the UEFI variable store (created on first run).
+UEFI_VARS_PATH = os.path.join(ASSETS_DIR, "PocketVM", "OVMF_VARS.fd")
+# QEMU's own error output goes here so failures are diagnosable.
+QEMU_LOG_PATH = os.path.join(ASSETS_DIR, "PocketVM", "qemu_last_run.log")
+
+# Stops Windows from opening a black console window for QEMU.
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 ICON_PATH = os.path.join(BASE_DIR, "Images", "icon.png")
+
+
+def find_uefi_firmware():
+    """Return (code_fd, vars_template_fd). Either may be None."""
+    code = None
+    for name in ("edk2-x86_64-code.fd", "OVMF_CODE.fd", "OVMF.fd"):
+        path = os.path.join(QEMU_SHARE, name)
+        if os.path.isfile(path):
+            code = path
+            break
+
+    vars_template = None
+    for name in ("edk2-i386-vars.fd", "OVMF_VARS.fd"):
+        path = os.path.join(QEMU_SHARE, name)
+        if os.path.isfile(path):
+            vars_template = path
+            break
+
+    return code, vars_template
 
 
 class VMDisplay(QWidget):
@@ -56,7 +86,7 @@ class VMDisplay(QWidget):
 
     def attach_window(self, hwnd):
         if self.window_container is not None:
-            return
+            return True
 
         try:
             self.foreign_window = QWindow.fromWinId(hwnd)
@@ -68,6 +98,9 @@ class VMDisplay(QWidget):
             )
             self.window_container.setFocusPolicy(
                 Qt.FocusPolicy.StrongFocus
+            )
+            self.window_container.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
             )
             self.layout.addWidget(self.window_container)
             return True
@@ -83,6 +116,15 @@ class VMDisplay(QWidget):
             self.window_container = None
             self.foreign_window = None
 
+    def clear(self):
+        """Remove the embedded window and any placeholder label."""
+        self.detach_window()
+        while self.layout.count():
+            item = self.layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
 
 class PocketVM(QMainWindow):
     def __init__(self):
@@ -92,14 +134,14 @@ class PocketVM(QMainWindow):
         if os.path.isfile(ICON_PATH):
             self.setWindowIcon(QIcon(ICON_PATH))
         self.resize(1050, 700)
-        self.setMinimumSize(760, 520)
+        self.setMinimumSize(760, 560)
 
         self.selected_iso = None
         self.qemu_process = None
+        self.qemu_log = None
         self.embed_timer = QTimer(self)
         self.embed_timer.setInterval(300)
         self.embed_timer.timeout.connect(self.find_qemu_window)
-        self.started_at = None
 
         self.build_ui()
         self.refresh_iso_list()
@@ -107,6 +149,11 @@ class PocketVM(QMainWindow):
     # --------------------------------------------------------
     # UI
     # --------------------------------------------------------
+
+    def make_label(self, text, style):
+        label = QLabel(text)
+        label.setStyleSheet(style + " border: none; background: transparent;")
+        return label
 
     def build_ui(self):
         central = QWidget()
@@ -116,36 +163,53 @@ class PocketVM(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # Sidebar: a fixed-width frame holding a scroll area, so controls
+        # never overlap when the window (or an embedding host) is short.
         sidebar = QFrame()
-        sidebar.setFixedWidth(215)
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(230)
         sidebar.setStyleSheet("""
-            QFrame {
+            QFrame#sidebar {
                 background-color: #0E0A18;
                 border-right: 2px solid #3B2A66;
             }
         """)
+        sidebar_outer = QVBoxLayout(sidebar)
+        sidebar_outer.setContentsMargins(0, 0, 0, 0)
+        sidebar_outer.setSpacing(0)
 
-        side = QVBoxLayout(sidebar)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+        )
+        sidebar_outer.addWidget(scroll)
+
+        inner = QWidget()
+        inner.setObjectName("sideInner")
+        inner.setStyleSheet("QWidget#sideInner { background-color: #0E0A18; }")
+        scroll.setWidget(inner)
+
+        side = QVBoxLayout(inner)
         side.setContentsMargins(16, 20, 16, 16)
-        side.setSpacing(9)
+        side.setSpacing(8)
 
-        logo = QLabel("PocketTerm")
-        logo.setStyleSheet(
-            "color: white; font-size: 25px; font-weight: bold; border: none;"
-        )
-        subtitle = QLabel("VIRTUAL MACHINE")
-        subtitle.setStyleSheet(
-            "color: #A78BFA; font-size: 9px; border: none;"
-        )
-        side.addWidget(logo)
-        side.addWidget(subtitle)
-        side.addSpacing(22)
+        side.addWidget(self.make_label(
+            "PocketTerm", "color: white; font-size: 25px; font-weight: bold;"
+        ))
+        side.addWidget(self.make_label(
+            "VIRTUAL MACHINE", "color: #A78BFA; font-size: 9px;"
+        ))
+        side.addSpacing(18)
 
-        section = QLabel("▾  VM CONTROLS")
-        section.setStyleSheet(
-            "color: #A78BFA; font-size: 10px; font-weight: bold; border: none;"
-        )
-        side.addWidget(section)
+        side.addWidget(self.make_label(
+            "▾  VM CONTROLS",
+            "color: #A78BFA; font-size: 10px; font-weight: bold;"
+        ))
 
         self.iso_combo = QComboBox()
         self.iso_combo.setMinimumHeight(34)
@@ -159,33 +223,58 @@ class PocketVM(QMainWindow):
         browse.clicked.connect(self.browse_iso)
         side.addWidget(browse)
 
-        ram_label = QLabel("MEMORY (MB)")
-        ram_label.setStyleSheet(
-            "color: #B9A6E8; font-size: 10px; border: none;"
-        )
-        side.addWidget(ram_label)
+        side.addSpacing(6)
+        side.addWidget(self.make_label(
+            "MEMORY (MB)", "color: #B9A6E8; font-size: 10px;"
+        ))
 
         self.ram_spin = QSpinBox()
+        self.ram_spin.setMinimumHeight(34)
         self.ram_spin.setRange(512, 16384)
         self.ram_spin.setSingleStep(512)
-        self.ram_spin.setValue(2048)
+        self.ram_spin.setValue(4096)
         self.ram_spin.setSuffix(" MB")
         self.ram_spin.setStyleSheet(self.input_style())
         side.addWidget(self.ram_spin)
 
-        core_label = QLabel("CPU CORES")
-        core_label.setStyleSheet(
-            "color: #B9A6E8; font-size: 10px; border: none;"
-        )
-        side.addWidget(core_label)
+        side.addSpacing(4)
+        side.addWidget(self.make_label(
+            "CPU CORES", "color: #B9A6E8; font-size: 10px;"
+        ))
 
+        cpu_count = os.cpu_count() or 2
         self.cpu_spin = QSpinBox()
-        self.cpu_spin.setRange(1, max(1, os.cpu_count() or 2))
-        self.cpu_spin.setValue(2 if (os.cpu_count() or 2) >= 2 else 1)
+        self.cpu_spin.setMinimumHeight(34)
+        self.cpu_spin.setRange(1, max(1, cpu_count))
+        self.cpu_spin.setValue(min(4, cpu_count))
         self.cpu_spin.setStyleSheet(self.input_style())
         side.addWidget(self.cpu_spin)
 
-        side.addSpacing(8)
+        side.addSpacing(4)
+        side.addWidget(self.make_label(
+            "BOOT MODE", "color: #B9A6E8; font-size: 10px;"
+        ))
+        self.boot_combo = QComboBox()
+        self.boot_combo.setMinimumHeight(34)
+        self.boot_combo.setStyleSheet(self.input_style())
+        self.boot_combo.addItem("UEFI (modern ISOs)", "uefi")
+        self.boot_combo.addItem("Legacy BIOS (Puppy, older)", "bios")
+        side.addWidget(self.boot_combo)
+
+        side.addSpacing(4)
+        side.addWidget(self.make_label(
+            "GRAPHICS", "color: #B9A6E8; font-size: 10px;"
+        ))
+        self.gpu_combo = QComboBox()
+        self.gpu_combo.setMinimumHeight(34)
+        self.gpu_combo.setStyleSheet(self.input_style())
+        self.gpu_combo.addItem("Standard VGA", "std")
+        self.gpu_combo.addItem("VMware SVGA", "vmware")
+        self.gpu_combo.addItem("Cirrus (very old)", "cirrus")
+        self.gpu_combo.addItem("VirtIO", "virtio")
+        side.addWidget(self.gpu_combo)
+
+        side.addSpacing(12)
 
         self.start_button = QPushButton("Start Virtual Machine")
         self.start_button.setFixedHeight(40)
@@ -200,21 +289,20 @@ class PocketVM(QMainWindow):
         self.stop_button.setEnabled(False)
         side.addWidget(self.stop_button)
 
+        side.addSpacing(10)
         side.addStretch()
 
-        self.status_label = QLabel("VM ready.")
-        self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet(
-            "color: #A78BFA; font-size: 11px; border: none;"
+        self.status_label = self.make_label(
+            "VM ready.", "color: #A78BFA; font-size: 11px;"
         )
+        self.status_label.setWordWrap(True)
         side.addWidget(self.status_label)
 
-        footer = QLabel("Powered by QEMU")
-        footer.setStyleSheet(
-            "color: #806AAE; font-size: 9px; border: none;"
-        )
-        side.addWidget(footer)
+        side.addWidget(self.make_label(
+            "Powered by QEMU", "color: #806AAE; font-size: 9px;"
+        ))
 
+        # Content area
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(22, 20, 22, 20)
@@ -227,24 +315,14 @@ class PocketVM(QMainWindow):
         description = QLabel(
             "Boot an ISO from your portable OperatingSystems folder."
         )
-        description.setStyleSheet(
-            "font-size: 12px; color: #B9A6E8;"
-        )
+        description.setStyleSheet("font-size: 12px; color: #B9A6E8;")
 
         self.display = VMDisplay()
         self.display.setMinimumSize(480, 320)
-
-        self.display_placeholder = QLabel(
-            "VM DISPLAY\\n\\nSelect an ISO and click Start Virtual Machine."
+        self.show_placeholder(
+            "VM DISPLAY\n\nSelect an ISO and click Start Virtual Machine.",
+            "#806AAE", 13,
         )
-        self.display_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.display_placeholder.setStyleSheet("""
-            color: #806AAE;
-            background-color: #000000;
-            border: 1px solid #3B2A66;
-            font-size: 13px;
-        """)
-        self.display.layout.addWidget(self.display_placeholder)
 
         content_layout.addWidget(title)
         content_layout.addWidget(description)
@@ -259,6 +337,16 @@ class PocketVM(QMainWindow):
                 color: white;
             }
         """)
+
+    def show_placeholder(self, text, color, size):
+        self.display.clear()
+        label = QLabel(text)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet(
+            f"color: {color}; background-color: #000000; "
+            f"border: none; font-size: {size}px;"
+        )
+        self.display.layout.addWidget(label)
 
     def button_style(self):
         return """
@@ -331,6 +419,11 @@ class PocketVM(QMainWindow):
 
     def iso_changed(self, index):
         self.selected_iso = self.iso_combo.itemData(index)
+        # Puppy Linux ISOs usually behave best with legacy BIOS boot.
+        if self.selected_iso and "puppy" in os.path.basename(
+            self.selected_iso
+        ).lower():
+            self.boot_combo.setCurrentIndex(self.boot_combo.findData("bios"))
 
     def browse_iso(self):
         os.makedirs(ISO_DIR, exist_ok=True)
@@ -358,8 +451,14 @@ class PocketVM(QMainWindow):
     # --------------------------------------------------------
 
     def find_qemu_window(self):
-        if self.qemu_process is None or self.qemu_process.poll() is not None:
+        if self.qemu_process is None:
             self.embed_timer.stop()
+            return
+
+        if self.qemu_process.poll() is not None:
+            # QEMU died early: tell the user why instead of failing silently.
+            self.embed_timer.stop()
+            self.report_qemu_exit()
             return
 
         if self.display.window_container is not None:
@@ -405,11 +504,7 @@ class PocketVM(QMainWindow):
                 return
 
             hwnd = found_hwnds[0]
-            if self.display.layout.count():
-                item = self.display.layout.takeAt(0)
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
+            self.display.clear()
 
             if self.display.attach_window(hwnd):
                 self.embed_timer.stop()
@@ -425,12 +520,70 @@ class PocketVM(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Window embedding error",
-                f"QEMU started, but embedding failed:\\n{error}"
+                f"QEMU started, but embedding failed:\n{error}"
             )
+
+    def report_qemu_exit(self):
+        code = self.qemu_process.returncode if self.qemu_process else None
+        details = ""
+        try:
+            if self.qemu_log:
+                self.qemu_log.flush()
+            with open(QEMU_LOG_PATH, "r", errors="replace") as fh:
+                details = fh.read().strip()[-1500:]
+        except Exception:
+            pass
+
+        self.finish_vm_ui("Virtual machine exited.")
+        QMessageBox.warning(
+            self,
+            "QEMU stopped",
+            f"QEMU exited with code {code}.\n\n{details or 'No output.'}"
+        )
 
     # --------------------------------------------------------
     # Start / stop VM
     # --------------------------------------------------------
+
+    def build_qemu_args(self):
+        args = [
+            "-machine", "q35",
+            # Try Windows Hypervisor Platform first, fall back to software.
+            "-accel", "whpx,kernel-irqchip=off",
+            "-accel", "tcg",
+            "-m", str(self.ram_spin.value()),
+            "-smp", str(self.cpu_spin.value()),
+            "-drive",
+            f"file={os.path.abspath(self.selected_iso)},media=cdrom,"
+            "readonly=on,if=none,id=cd0",
+            "-device", "ide-cd,drive=cd0,bootindex=0",
+            "-vga", self.gpu_combo.currentData(),
+            "-usb",
+            "-device", "usb-tablet",
+            "-display", "sdl",
+        ]
+
+        if self.boot_combo.currentData() == "bios":
+            return args, True
+
+        code, vars_template = find_uefi_firmware()
+        if code is None:
+            return args, False
+
+        if vars_template is not None:
+            if not os.path.isfile(UEFI_VARS_PATH):
+                os.makedirs(os.path.dirname(UEFI_VARS_PATH), exist_ok=True)
+                shutil.copyfile(vars_template, UEFI_VARS_PATH)
+            args += [
+                "-drive",
+                f"if=pflash,format=raw,unit=0,readonly=on,file={code}",
+                "-drive",
+                f"if=pflash,format=raw,unit=1,file={UEFI_VARS_PATH}",
+            ]
+        else:
+            args += ["-bios", code]
+
+        return args, True
 
     def start_vm(self):
         if self.qemu_process is not None and self.qemu_process.poll() is None:
@@ -452,37 +605,44 @@ class PocketVM(QMainWindow):
             QMessageBox.critical(
                 self,
                 "QEMU not found",
-                "Could not find QEMU at:\\n\\n" + QEMU_EXE
+                "Could not find QEMU at:\n\n" + QEMU_EXE
             )
             return
 
-        self.display.detach_window()
-        while self.display.layout.count():
-            item = self.display.layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
+        args, has_uefi = self.build_qemu_args()
+        if not has_uefi:
+            answer = QMessageBox.question(
+                self,
+                "UEFI firmware not found",
+                "No UEFI firmware (edk2-x86_64-code.fd) was found in:\n\n"
+                f"{QEMU_SHARE}\n\n"
+                "UEFI-only ISOs such as Bazzite will show 'No bootable "
+                "device' with the legacy BIOS. Start anyway?"
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
 
-        args = [
-            "-m", str(self.ram_spin.value()),
-            "-smp", str(self.cpu_spin.value()),
-            "-cdrom", os.path.abspath(self.selected_iso),
-            "-boot", "order=d",
-            "-display", "sdl",
-        ]
+        self.display.clear()
 
         try:
+            os.makedirs(os.path.dirname(QEMU_LOG_PATH), exist_ok=True)
+            self.qemu_log = open(QEMU_LOG_PATH, "w")
             self.qemu_process = subprocess.Popen(
                 [QEMU_EXE] + args,
                 cwd=QEMU_DIR,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=self.qemu_log,
+                stderr=subprocess.STDOUT,
                 shell=False,
+                creationflags=CREATE_NO_WINDOW,
             )
         except Exception as error:
             self.qemu_process = None
             self.status_label.setText("Could not start QEMU.")
+            self.show_placeholder(
+                "VM DISPLAY\n\nSelect an ISO and click Start Virtual Machine.",
+                "#806AAE", 13,
+            )
             QMessageBox.critical(
                 self, "QEMU launch failed", str(error)
             )
@@ -493,18 +653,38 @@ class PocketVM(QMainWindow):
         self.iso_combo.setEnabled(False)
         self.ram_spin.setEnabled(False)
         self.cpu_spin.setEnabled(False)
+        self.boot_combo.setEnabled(False)
+        self.gpu_combo.setEnabled(False)
 
-        self.display_placeholder = QLabel(
-            "Starting QEMU...\\nWaiting for the virtual machine display."
+        self.show_placeholder(
+            "Starting QEMU...\nWaiting for the virtual machine display.",
+            "#A78BFA", 12,
         )
-        self.display_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.display_placeholder.setStyleSheet(
-            "color: #A78BFA; background-color: #000000; font-size: 12px;"
-        )
-        self.display.layout.addWidget(self.display_placeholder)
-
         self.status_label.setText("Launching virtual machine...")
         self.embed_timer.start()
+
+    def finish_vm_ui(self, message):
+        self.embed_timer.stop()
+        self.qemu_process = None
+        if self.qemu_log:
+            try:
+                self.qemu_log.close()
+            except Exception:
+                pass
+            self.qemu_log = None
+
+        self.show_placeholder(
+            "VM DISPLAY\n\nSelect an ISO and click Start Virtual Machine.",
+            "#806AAE", 13,
+        )
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.iso_combo.setEnabled(True)
+        self.ram_spin.setEnabled(True)
+        self.cpu_spin.setEnabled(True)
+        self.boot_combo.setEnabled(True)
+        self.gpu_combo.setEnabled(True)
+        self.status_label.setText(message)
 
     def stop_vm(self):
         self.embed_timer.stop()
@@ -520,30 +700,7 @@ class PocketVM(QMainWindow):
             except Exception:
                 pass
 
-        self.qemu_process = None
-        self.display.detach_window()
-
-        while self.display.layout.count():
-            item = self.display.layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        self.display_placeholder = QLabel(
-            "VM DISPLAY\\n\\nSelect an ISO and click Start Virtual Machine."
-        )
-        self.display_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.display_placeholder.setStyleSheet(
-            "color: #806AAE; background-color: #000000; font-size: 13px;"
-        )
-        self.display.layout.addWidget(self.display_placeholder)
-
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.iso_combo.setEnabled(True)
-        self.ram_spin.setEnabled(True)
-        self.cpu_spin.setEnabled(True)
-        self.status_label.setText("Virtual machine stopped.")
+        self.finish_vm_ui("Virtual machine stopped.")
 
     def closeEvent(self, event):
         self.stop_vm()
