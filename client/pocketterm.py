@@ -156,7 +156,8 @@ PAGE_WORKSPACES = 22
 PAGE_MAIL = 23
 PAGE_PYTHON_COMPILER = 24
 PAGE_MC_SERVER_BOT = 25
-PAGE_COUNT = 26
+PAGE_WSL = 26
+PAGE_COUNT = 27
 
 PLUGIN_REPO_API = "https://api.github.com/repos/nahashi86-eng/PocketTerm/git/trees/main?recursive=1"
 PLUGIN_RAW_BASE = "https://raw.githubusercontent.com/nahashi86-eng/PocketTerm/main/"
@@ -171,7 +172,8 @@ UPDATE_MAX_BYTES = 5_000_000
 UPDATE_BACKUPS_KEEP = 5
 
 NAV_GROUPS = [
-    ("Workspace", [("Dashboard", PAGE_DASHBOARD), ("Terminal View", PAGE_TERMINAL), ("VS Code", PAGE_VSCODE),
+    ("Workspace", [("Dashboard", PAGE_DASHBOARD), ("Terminal View", PAGE_TERMINAL), ("WSL Terminal", PAGE_WSL),
+                   ("VS Code", PAGE_VSCODE),
                    ("Projects", PAGE_PROJECTS), ("Files", PAGE_FILES), ("Snippets", PAGE_SNIPPETS),
                    ("Workspaces", PAGE_WORKSPACES)]),
     ("Automation", [("Scripts", PAGE_SCRIPTS), ("Tools", PAGE_TOOLS), ("Autoclicker", PAGE_AUTOCLICKER),
@@ -247,10 +249,12 @@ class Settings:
         "workspaces": [],                                   # saved Workspaces
         "passcode_hash": "", "passcode_salt": "",           # startup passcode (empty = no passcode)
         "mail_from": "", "mail_to": "",                     # Mail Automation: remembered Gmail addresses
+        "wsl_vhdx_path": r"F:\Assets\WSL\ubuntu.vhdx",      # WSL Terminal: the Ubuntu disk to load
+        "wsl_distro": "PocketUbuntu",                       # name it is registered under in WSL
     }
     SECRET_KEYS = ("passcode_hash", "passcode_salt")        # never exported or imported
     STR_LISTS =("pinned_projects", "recent_projects", "nav_collapsed", "enabled_plugins")
-    PATH_KEYS = ("launcher_path", "bash_path", "git_path", "vscode_exe", "firefox_path")
+    PATH_KEYS = ("launcher_path", "bash_path", "git_path", "vscode_exe", "firefox_path", "wsl_vhdx_path")
 
     def __init__(self, path):
         self.path = path
@@ -1302,7 +1306,7 @@ class EmbeddedWindow(QWidget):
     WS_EX_CLIENTEDGE, WS_EX_WINDOWEDGE, WS_EX_APPWINDOW = 0x00000200, 0x00000100, 0x00040000
     SWP_NOZORDER, SWP_FRAMECHANGED, SWP_SHOWWINDOW, SWP_NOACTIVATE = 0x0004, 0x0020, 0x0040, 0x0010
     RDW_INVALIDATE, RDW_ERASE, RDW_ALLCHILDREN, RDW_FRAME = 0x0001, 0x0004, 0x0080, 0x0400
-    WM_CLOSE, WM_CHAR = 0x0010, 0x0102
+    WM_CLOSE, WM_CHAR, WM_SETFOCUS, WM_KEYDOWN, WM_KEYUP = 0x0010, 0x0102, 0x0007, 0x0100, 0x0101
 
     _claimed = set()  # windows already embedded by any EmbeddedWindow, so two tabs never grab the same one
 
@@ -1391,6 +1395,8 @@ class EmbeddedWindow(QWidget):
             (u, "RedrawWindow", [W.HWND, T.c_void_p, T.c_void_p, W.UINT], W.BOOL),
             (u, "PostMessageW", [W.HWND, W.UINT, W.WPARAM, W.LPARAM], W.BOOL),
             (u, "SetFocus", [W.HWND], W.HWND),
+            (u, "GetFocus", None, W.HWND),
+            (u, "IsChild", [W.HWND, W.HWND], W.BOOL),
             (u, "GetWindowThreadProcessId", [W.HWND, T.POINTER(W.DWORD)], W.DWORD),
             (u, "AttachThreadInput", [W.DWORD, W.DWORD, W.BOOL], W.BOOL),
             (k, "GetCurrentThreadId", None, W.DWORD),
@@ -1597,6 +1603,22 @@ class EmbeddedWindow(QWidget):
             self._attach_input()
             self.user32.SetFocus(wintypes.HWND(self.hwnd))
 
+    def ensure_focus(self):
+        """Give the embedded window keyboard focus again if it lost it (e.g. after alt-tab)."""
+        if os.name != "nt" or not self._alive():
+            return
+        self._attach_input()
+        focus = self.user32.GetFocus()
+        hwnd = wintypes.HWND(self.hwnd)
+        if focus and (int(focus) == self.hwnd or self.user32.IsChild(hwnd, focus)):
+            return
+        # Focus really is elsewhere: rebuild the input link once (it can go stale after the app was
+        # deactivated), then take the focus and tell the program it has it.
+        self._detach_input()
+        self._attach_input()
+        self.user32.SetFocus(hwnd)
+        self.user32.PostMessageW(hwnd, self.WM_SETFOCUS, 0, 0)
+
     def send_text(self, text):
         """Type text into the embedded window (best effort, Windows only)."""
         if os.name != "nt" or not self._alive():
@@ -1607,10 +1629,34 @@ class EmbeddedWindow(QWidget):
                                      int.from_bytes(data[i:i + 2], "little"), 0)
         return True
 
+    _NAV_KEYS = {Qt.Key_Up: 0x26, Qt.Key_Down: 0x28, Qt.Key_Left: 0x25, Qt.Key_Right: 0x27,
+                 Qt.Key_Home: 0x24, Qt.Key_End: 0x23, Qt.Key_PageUp: 0x21, Qt.Key_PageDown: 0x22,
+                 Qt.Key_Delete: 0x2E, Qt.Key_Insert: 0x2D}
+
+    def keyPressEvent(self, event):
+        """Fallback: when Windows leaves the keyboard with PocketTerm instead of the embedded program
+        (typically right after alt-tab), forward the keys to it so typing never goes dead."""
+        if os.name == "nt" and self._alive():
+            vk = self._NAV_KEYS.get(event.key())
+            hwnd = wintypes.HWND(self.hwnd)
+            if vk:
+                self.user32.PostMessageW(hwnd, self.WM_KEYDOWN, vk, 1)
+                self.user32.PostMessageW(hwnd, self.WM_KEYUP, vk, 0xC0000001)
+                event.accept()
+                self.ensure_focus()
+                return
+            text = event.text()
+            if text and not (event.modifiers() & Qt.AltModifier):
+                self.send_text(text)
+                event.accept()
+                self.ensure_focus()
+                return
+        super().keyPressEvent(event)
+
     def focus_soon(self):
         """Qt may re-grab focus after activation, so retry a few times."""
-        for delay in (30, 150, 400):
-            QTimer.singleShot(delay, self.focus_window)
+        for delay in (30, 150, 400, 900, 1600):
+            QTimer.singleShot(delay, self.ensure_focus)
 
     def focusInEvent(self, event):
         super().focusInEvent(event)
@@ -1863,6 +1909,124 @@ class EmbeddedScript(EmbeddedWindow):
             return False
         w, h = self.window_size(hwnd)
         return w >= 120 and h >= 80 and self.window_pid(hwnd) in self._family_pids()
+
+
+# ---------- WSL helpers ----------
+
+def find_wsl():
+    """wsl.exe from PATH or System32 (the WSL installed on this PC)."""
+    w = shutil.which("wsl.exe") or shutil.which("wsl")
+    if w:
+        return Path(w)
+    p = Path(os.environ.get("SystemRoot") or r"C:\Windows") / "System32" / "wsl.exe"
+    return p if p.is_file() else None
+
+
+def _wsl_text(data):
+    """wsl.exe prints UTF-16LE by default (UTF-8 when WSL_UTF8 is set)."""
+    if not data:
+        return ""
+    text = data.decode("utf-16-le", errors="replace") if b"\x00" in data else data.decode("utf-8", errors="replace")
+    return text.replace("\ufeff", "").replace("\x00", "")
+
+
+def wsl_registered_distros(wsl):
+    """List of distro names registered in WSL, or None if WSL couldn't be queried."""
+    try:
+        r = subprocess.run([str(wsl), "-l", "-q"], capture_output=True, timeout=20, stdin=subprocess.DEVNULL,
+                           creationflags=CREATE_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError) as e:
+        log.warning("Could not list WSL distros: %s", e)
+        return None
+    names = [ln.strip() for ln in _wsl_text(r.stdout).splitlines() if ln.strip()]
+    if r.returncode != 0 and not names:
+        return []  # "no installed distributions" also exits non-zero
+    return names
+
+
+def wsl_import_in_place(wsl, name, vhdx):
+    """Register an existing ext4 .vhdx with WSL without copying it. Returns (ok, message)."""
+    try:
+        r = subprocess.run([str(wsl), "--import-in-place", name, str(vhdx)], capture_output=True, timeout=180,
+                           stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, f"Couldn't run wsl.exe: {e}"
+    out = (_wsl_text(r.stdout) + "\n" + _wsl_text(r.stderr)).strip()
+    if r.returncode != 0:
+        return False, ("WSL couldn't load the VHDX:\n" + (out or f"exit code {r.returncode}") +
+                       "\n\nThe file must be the ext4 disk of a WSL distribution (an ext4.vhdx).")
+    return True, out
+
+
+class EmbeddedWSL(EmbeddedWindow):
+    """Runs the VHDX as a WSL distro. The first start registers it with `wsl --import-in-place`; every
+    start opens `wsl.exe -d <name>` inside a classic console host (conhost.exe), whose window is embedded."""
+
+    NAME = "WSL Terminal"
+    TIMEOUT_MS = 40000
+    IDLE_MESSAGE = "Press Start to load your Ubuntu VHDX in WSL."
+    TIMEOUT_MESSAGE = ("WSL was started, but no console window was captured.\n"
+                       "Check that WSL works from a normal terminal (wsl -d <name>) and try again.")
+
+    def vhdx_path(self):
+        return resolve_configured_path(self.settings.get("wsl_vhdx_path"))
+
+    def distro_name(self):
+        return str(self.settings.get("wsl_distro") or "").strip() or "PocketUbuntu"
+
+    def build_launch(self, target=None):
+        wsl = find_wsl()
+        if wsl is None:
+            return None, None, "WSL isn't installed on this PC (wsl.exe not found).\nInstall it with: wsl --install"
+        vhdx = self.vhdx_path()
+        if not vhdx or not vhdx.is_file():
+            return None, None, f"VHDX not found:\n{vhdx}\n\nPlug in the drive, or use Change VHDX... above."
+        names = wsl_registered_distros(wsl)
+        if names is None:
+            return None, None, "Couldn't ask WSL for its distros. Is WSL working on this PC?"
+        distro = self.distro_name()
+        if distro.lower() not in {n.lower() for n in names}:
+            self.set_message(f"Registering {vhdx.name} with WSL (first start only)...", False)
+            QApplication.processEvents()
+            ok, message = wsl_import_in_place(wsl, distro, vhdx)
+            if not ok:
+                return None, None, message
+            log.info("Registered %s in WSL as %s", vhdx, distro)
+        system32 = Path(os.environ.get("SystemRoot") or r"C:\Windows") / "System32"
+        conhost = system32 / "conhost.exe"
+        program = [str(conhost)] if conhost.is_file() else []
+        args = program + [str(wsl), "-d", distro, "--cd", "~"]
+        return args, {"cwd": str(system32), "creationflags": CREATE_NEW_PROCESS_GROUP}, ""
+
+    def _family_pids(self):
+        proc = self.process
+        if proc is None:
+            return set()
+        pids = {proc.pid}
+        if psutil is not None:
+            try:
+                pids |= {c.pid for c in psutil.Process(proc.pid).children(recursive=True)}
+            except Exception:
+                pass
+        return pids
+
+    def accepts(self, hwnd):
+        if self.window_class(hwnd) != "consolewindowclass" or self.has_owner(hwnd):
+            return False
+        pid = wintypes.DWORD()
+        self.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return int(pid.value) in self._family_pids()
+
+    def stop(self, message=None):
+        super().stop(message)
+        wsl = find_wsl()
+        if wsl is not None and os.name == "nt":  # also stop the distro itself, so the VHDX is released
+            try:
+                subprocess.Popen([str(wsl), "--terminate", self.distro_name()], stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                                 creationflags=CREATE_NO_WINDOW)
+            except OSError as e:
+                log.warning("Could not terminate WSL distro: %s", e)
 
 
 # ============================================================
@@ -2810,6 +2974,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
         # Create the embedded widgets first; pages and sidebar reference them.
         self.terminals = TerminalTabs(self.settings)
         self.vscode = EmbeddedVSCode(self.settings)
+        self.wsl = EmbeddedWSL(self.settings)
 
         # The sidebar scrolls vertically so short displays don't force the window to grow.
         sidebar_scroll = QScrollArea()
@@ -2837,6 +3002,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
             PAGE_LOGS: self._build_logs_page, PAGE_WORKSPACES: self._build_workspaces_page,
             PAGE_MAIL: self._build_mail_page, PAGE_PYTHON_COMPILER: self._build_python_compiler_page,
             PAGE_MC_SERVER_BOT: self._build_mcserver_bot_page,
+            PAGE_WSL: self._build_wsl_page,
         }
         for i in range(PAGE_COUNT):
             self.stacked_widget.addWidget(builders[i]())
@@ -2860,6 +3026,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
             t.start()
             return t
         self._nav_timer = every(1000, self._update_nav_indicators)      # sidebar status dots
+        self._focus_timer = every(500, self._focus_watchdog)            # keeps typing working in embedded windows
+        QApplication.instance().applicationStateChanged.connect(self._app_state_changed)
         self._drives_timer = every(DRIVE_REFRESH_MS, self._drives_tick)   # also ~1/min for low-space alerts
         self._ports_timer = every(5000, self._ports_tick)
         self._dashboard_timer = every(3000, self._refresh_dashboard)
@@ -3061,7 +3229,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
     def _update_nav_indicators(self):
         self._nav_running = {
             PAGE_TERMINAL: self.terminals.any_running(), PAGE_VSCODE: self.vscode.is_running(),
-            PAGE_SCRIPTS: self._script_running(), PAGE_WEB: self.ai.running(),
+            PAGE_WSL: self.wsl.is_running(), PAGE_SCRIPTS: self._script_running(), PAGE_WEB: self.ai.running(),
             PAGE_TOOLS: self._tools_running(), PAGE_AUTOCLICKER: self.ac.running(),
             PAGE_POCKETLAUNCHER: self.pl.running(), PAGE_POCKETVM: self.vm.running(),
             PAGE_CPP: self.cpp.running(), PAGE_NETSCANNER: self.ns.running(),
@@ -3896,6 +4064,52 @@ class MainWindow(ExtrasMixin, QMainWindow):
                                        Qt.TopRightCorner)
         layout.addWidget(self.terminals, stretch=1)
         return page
+
+    def _build_wsl_page(self):
+        page, layout = self._page(
+            "WSL Terminal",
+            "Loads your Ubuntu VHDX with the WSL installed on this PC and shows its terminal here. "
+            "The first start registers the disk with WSL (wsl --import-in-place); after that it just opens it.",
+            (self._button("Change VHDX...", self.wsl_pick_vhdx),
+             self._button("Stop", lambda: self.wsl.stop("WSL stopped."), "Danger"),
+             self._button("Start / Restart WSL", self.wsl_restart, "Primary")), gap=14)
+        self.wsl_status = self._status_label(layout)
+        frame = QFrame()
+        frame.setObjectName("TerminalFrame")
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(3, 3, 3, 3)
+        frame_layout.addWidget(self.wsl)
+        layout.addWidget(frame, stretch=1)
+        self._wsl_refresh_status()
+        return page
+
+    def _wsl_refresh_status(self):
+        vhdx, wsl = self.wsl.vhdx_path(), find_wsl()
+        if wsl is None:
+            self._set_status(self.wsl_status, False, "WSL isn't installed on this PC (wsl.exe not found).")
+        elif not vhdx or not vhdx.is_file():
+            self._set_status(self.wsl_status, False, f"VHDX not found: {vhdx}")
+        else:
+            self._set_status(self.wsl_status, True, f"{vhdx}   ·   distro name: {self.wsl.distro_name()}")
+
+    def wsl_restart(self):
+        self.show_page(PAGE_WSL)
+        self.wsl.restart()
+
+    def wsl_pick_vhdx(self):
+        current = self.wsl.vhdx_path()
+        start = str(current.parent) if current and current.parent.exists() else str(PORTABLE_ROOT)
+        path, _ = QFileDialog.getOpenFileName(self, "Choose the Ubuntu VHDX", start,
+                                              "Virtual disks (*.vhdx);;All files (*)")
+        if not path:
+            return
+        if self.wsl.is_running():
+            self.wsl.stop("Restarting with the new disk...")
+        self.settings.set("wsl_vhdx_path", os.path.normpath(path))
+        # a different disk needs its own WSL registration name
+        stem = re.sub(r"[^A-Za-z0-9]", "", Path(path).stem).title() or "Ubuntu"
+        self.settings.set("wsl_distro", "Pocket" + stem)
+        self._wsl_refresh_status()
 
     def _build_vscode_page(self):
         page, layout = self._page(
@@ -5507,6 +5721,9 @@ class MainWindow(ExtrasMixin, QMainWindow):
             w = self.tool_tabs.widget(i)
             if isinstance(w, EmbeddedTool) and drive_of(w.exe) == drive:
                 self.close_tool_tab(i)
+        vhdx = self.wsl.vhdx_path()
+        if self.wsl.is_running() and vhdx and drive_of(vhdx) == drive:
+            self.wsl.stop(msg)
         if self._script_running() and self._script_path and drive_of(self._script_path) == drive:
             self.stop_script()
         if self.ac.running() and drive_of(AUTOCLICKER_FILE) == drive:
@@ -5911,7 +6128,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
 
     def open_palette(self):
         commands = [(f"Go to: {label}", lambda i=index: self.show_page(i)) for index, label in self._nav_base.items()]
-        commands += [("Terminal: New tab", self.new_terminal_tab), ("VS Code: Open folder...", self.open_folder_in_vscode),
+        commands += [("Terminal: New tab", self.new_terminal_tab), ("WSL Terminal: Start / restart", self.wsl_restart),
+                     ("VS Code: Open folder...", self.open_folder_in_vscode),
                      ("VS Code: Start / restart", self.restart_vscode), ("Autoclicker: Start / Stop", self.ac_toggle),
                      ("PocketLauncher: Start / Stop", self.pl_toggle), ("PocketVM: Start / Stop", self.vm_toggle),
                      ("C++ Compiler: Start / Stop", self.cpp_toggle), ("Net Scanner: Start / Stop", self.ns_toggle),
@@ -6219,6 +6437,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
             return self.terminals.current_terminal()
         if index == PAGE_VSCODE:
             return self.vscode
+        if index == PAGE_WSL:
+            return self.wsl
         scripts = {PAGE_POCKETLAUNCHER: self.pl, PAGE_POCKETVM: self.vm, PAGE_CPP: self.cpp, PAGE_NETSCANNER: self.ns}
         if index in scripts:
             return scripts[index]
@@ -6229,11 +6449,29 @@ class MainWindow(ExtrasMixin, QMainWindow):
             return w if isinstance(w, EmbeddedWindow) else None
         return None
 
+    def _focus_watchdog(self):
+        """If an embedded terminal/app is on screen and nothing else in PocketTerm wants the keyboard,
+        make sure the embedded window really has it."""
+        if not self.isActiveWindow() or self.isMinimized() or QApplication.activeModalWidget() is not None:
+            return
+        widget = self._embedded_for(self.stacked_widget.currentIndex())
+        if widget is None or not getattr(widget, "hwnd", None) or not widget.isVisible():
+            return
+        if QApplication.focusWidget() not in (None, widget):
+            return  # the user is typing in one of PocketTerm's own boxes
+        widget.ensure_focus()
+
+    def _app_state_changed(self, state):
+        if state == Qt.ApplicationActive:
+            for delay in (50, 250, 700, 1500):
+                QTimer.singleShot(delay, self._focus_current)
+
     def _focus_current(self):
         widget = self._embedded_for(self.stacked_widget.currentIndex())
         if widget:
             widget.setFocus()
             widget.focus_soon()
+            widget.ensure_focus()
 
     def show_page(self, index):
         group = self._nav_page_group.get(index)  # expand the sidebar group that holds this page
@@ -6252,7 +6490,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
                    PAGE_POCKETVM: self._vm_refresh_status, PAGE_CPP: self._cpp_refresh_status,
                    PAGE_NETSCANNER: self._ns_refresh_status,
                    PAGE_DIAGNOSTICS: self.run_diagnostics,
-                   PAGE_LOGS: self.refresh_logs, PAGE_WORKSPACES: self._render_workspaces}
+                   PAGE_LOGS: self.refresh_logs, PAGE_WORKSPACES: self._render_workspaces,
+                   PAGE_WSL: self._wsl_refresh_status}
         if index in on_show:
             on_show[index]()
         elif index == PAGE_PLUGINS:
@@ -6411,7 +6650,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
             self.show_page(page)
 
         add_action("Show PocketTerm", self._show_window)
-        for text, page in (("Terminal", PAGE_TERMINAL), ("VS Code", PAGE_VSCODE), ("Autoclicker", PAGE_AUTOCLICKER),
+        for text, page in (("Terminal", PAGE_TERMINAL), ("WSL Terminal", PAGE_WSL), ("VS Code", PAGE_VSCODE),
+                           ("Autoclicker", PAGE_AUTOCLICKER),
                            ("PocketLauncher", PAGE_POCKETLAUNCHER), ("PocketVM", PAGE_POCKETVM),
                            ("C++ Compiler", PAGE_CPP), ("Python Compiler", PAGE_PYTHON_COMPILER), ("Net Scanner", PAGE_NETSCANNER)):
             add_action(text, lambda p=page: go(p))
@@ -6514,7 +6754,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
             self._focus_current()
 
     def _anything_running(self):
-        return (self.terminals.any_running() or self.vscode.is_running() or self._tools_running()
+        return (self.terminals.any_running() or self.vscode.is_running() or self.wsl.is_running()
+                or self._tools_running()
                 or self.ai.running() or self.ac.running() or self.pl.running() or self.vm.running()
                 or self.cpp.running() or self.ns.running() or proc_running(self.jar_proc) or self._script_running())
 
@@ -6537,8 +6778,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
             self.settings.data["window_size"] = [self.width(), self.height()]
         self.settings.save()
 
-        for timer in (self._nav_timer, self._drives_timer, self._ports_timer, self._dashboard_timer,
-                      self._update_timer):
+        for timer in (self._nav_timer, self._focus_timer, self._drives_timer, self._ports_timer,
+                      self._dashboard_timer, self._update_timer):
             timer.stop()
         for rel in list(self._loaded_plugins):
             self._unload_plugin(rel)
@@ -6567,6 +6808,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
 
         self.terminals.shutdown_all()
         self.vscode.shutdown()
+        self.wsl.shutdown()
         for i in range(self.tool_tabs.count()):
             w = self.tool_tabs.widget(i)
             if isinstance(w, EmbeddedWindow):
