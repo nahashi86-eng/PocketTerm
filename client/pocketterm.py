@@ -814,17 +814,16 @@ def list_listening_ports():
 # THEME
 # ============================================================
 
-TEXT, TEXT_BODY, TEXT_MUTED, TEXT_FAINT, TEXT_PLACEHOLDER = "#f3f0ff", "#d9d3f2", "#a69fc4", "#857ca8", "#7d739c"
-OK_COLOR, ERR_COLOR, WARN_COLOR, LOG_COLOR = "#6ee7b7", "#fda4af", "#fcd34d", "#e4dffa"
+TEXT, TEXT_BODY, TEXT_MUTED, TEXT_FAINT, TEXT_PLACEHOLDER = "#f6f6fc", "#d8d8ea", "#9c9cb8", "#7a7a96", "#6c6c88"
+OK_COLOR, ERR_COLOR, WARN_COLOR, LOG_COLOR = "#6ee7b7", "#fda4af", "#fcd34d", "#dedef2"
 
-ACCENTS = {  # accent, strong, soft, light, lighter, border, hover-border
-    "Violet":  ("#8b5cf6", "#7c3aed", "#a78bfa", "#c4b5fd", "#ddd6fe", "#3b2a66", "#5b3fb5"),
-    "Magenta": ("#d946ef", "#c026d3", "#e879f9", "#f0abfc", "#f5d0fe", "#5b2a66", "#a03fb5"),
-    "Indigo":  ("#6366f1", "#4f46e5", "#818cf8", "#a5b4fc", "#c7d2fe", "#2a2f66", "#3f4fb5"),
-    "Emerald": ("#10b981", "#059669", "#34d399", "#6ee7b7", "#a7f3d0", "#1f4a3c", "#2f8f6f"),
-}
-ACCENT_CHOICES = list(ACCENTS) + ["Custom"]
-BACKGROUND = "#08070d"
+BACKGROUND = "#08080d"
+SURFACE_SIDEBAR = "#0b0b12"
+SURFACE_CARD = "#101018"
+SURFACE_RAISED = "#171722"
+SURFACE_INPUT = "#0b0b12"
+LINE = "#1d1d2b"
+LINE_SOFT = "#14141f"
 HEX_RE = re.compile(r"#[0-9a-fA-F]{6}")
 
 
@@ -852,15 +851,22 @@ def on_color(bg):
 
 
 def custom_palette(base):
+    # accent, strong, soft, light, lighter, border, hover-border
     return (base, mix(base, "#000000", 0.15), mix(base, "#ffffff", 0.20), mix(base, "#ffffff", 0.45),
-            mix(base, "#ffffff", 0.65), mix(base, BACKGROUND, 0.72), mix(base, BACKGROUND, 0.40))
+            mix(base, "#ffffff", 0.65), mix(base, BACKGROUND, 0.74), mix(base, BACKGROUND, 0.45))
+
+
+ACCENT_BASES = {"Violet": "#8b5cf6", "Magenta": "#d946ef", "Indigo": "#6366f1",
+                "Emerald": "#10b981", "Cyan": "#22d3ee", "Amber": "#f59e0b"}
+ACCENTS = {name: custom_palette(base) for name, base in ACCENT_BASES.items()}
+ACCENT_CHOICES = list(ACCENTS) + ["Custom"]
 
 
 def get_palette(settings):
     name = settings.get("accent")
     if name == "Custom":
         base = str(settings.get("custom_accent"))
-        return custom_palette(base if HEX_RE.fullmatch(base) else ACCENTS["Violet"][0])
+        return custom_palette(base if HEX_RE.fullmatch(base) else ACCENT_BASES["Violet"])
     return ACCENTS.get(name, ACCENTS["Violet"])
 
 
@@ -889,102 +895,119 @@ def ui_icon(name, color, size, points, width):
 
 
 STYLE_TEMPLATE = """
-QMainWindow, QWidget { background-color: #08070d; color: @TEXT_BODY@; font-family: 'Segoe UI'; }
-QToolTip { background-color: #1e1535; color: @TEXT@; border: 1px solid @HOVERBORDER@; padding: 4px 8px; }
+QMainWindow, QWidget { background-color: @BG@; color: @TEXT_BODY@; font-family: 'Segoe UI'; }
+QToolTip { background-color: @RAISED@; color: @TEXT@; border: 1px solid @LINE@; border-radius: 6px; padding: 4px 8px; }
 QLabel { background: transparent; }
-QFrame#Sidebar { background-color: #0e0a18; border: none; border-right: 1px solid #231a3a; }
-QLabel#Logo { font-family: 'Consolas'; font-size: 26px; font-weight: 700; color: @TEXT@; }
-QLabel#Subtitle { color: @TEXT_FAINT@; font-size: 9px; font-weight: 600; }
-QLabel#PageTitle { font-size: 24px; font-weight: 700; color: @TEXT@; }
-QLabel#Description, QLabel#Muted { color: @TEXT_MUTED@; font-size: 12px; }
-QLabel#SectionTitle { font-size: 15px; font-weight: 700; color: @LIGHTER@; }
-QLabel#Status { color: @SOFT@; font-weight: bold; }
-QFrame#Card { background-color: #130e21; border: 1px solid #2a1f45; border-radius: 12px; }
-QFrame#TerminalFrame { background-color: #000000; border: 1px solid @BORDER@; border-radius: 8px; }
-QDialog#Palette { background-color: #130e21; border: 1px solid @HOVERBORDER@; }
 
-QPushButton { background-color: #1a1230; color: #e4dffa; border: 1px solid #2a1f45; border-radius: 8px;
-    padding: 10px 15px; font-size: 12px; }
-QPushButton:hover { background-color: #2a1d4d; border: 1px solid @HOVERBORDER@; }
-QPushButton:disabled { background-color: #120d20; color: #6f6590; border: 1px solid #1f1736; }
-QPushButton#Navigation { background-color: transparent; border: 1px solid transparent; border-radius: 12px;
-    color: #b5acd4; text-align: left; padding: 9px 16px; font-size: 13px; }
-QPushButton#Navigation:hover { background-color: #181129; border: 1px solid transparent; color: @TEXT@; }
-QPushButton#Navigation:checked { background-color: #1e1535; border: 1px solid @HOVERBORDER@;
-    border-left: 3px solid @ACCENT@; color: @LIGHTER@; font-weight: 600; }
-QPushButton#NavGroup { background-color: transparent; border: none; border-radius: 8px; color: @TEXT_FAINT@;
-    text-align: left; padding: 8px 10px; font-size: 10px; font-weight: 700; }
-QPushButton#NavGroup:hover { background-color: #181129; color: @TEXT@; }
+/* ---------- sidebar ---------- */
+QFrame#Sidebar { background-color: @SIDEBAR@; border: none; border-right: 1px solid @LINE_SOFT@; }
+QLabel#Logo { font-family: 'Consolas'; font-size: 20px; font-weight: 700; color: @TEXT@; }
+QLabel#Subtitle { color: @TEXT_FAINT@; font-size: 8px; font-weight: 600; letter-spacing: 1px; }
+
+/* ---------- typography ---------- */
+QLabel#PageTitle { font-size: 20px; font-weight: 600; color: @TEXT@; }
+QLabel#Description, QLabel#Muted { color: @TEXT_MUTED@; font-size: 12px; }
+QLabel#SectionTitle { font-size: 12px; font-weight: 600; color: @LIGHTER@; }
+QLabel#Status { color: @SOFT@; font-weight: bold; }
+
+/* ---------- surfaces ---------- */
+QFrame#Card { background-color: @CARD@; border: 1px solid @LINE_SOFT@; border-radius: 14px; }
+QFrame#TerminalFrame { background-color: #000000; border: 1px solid @LINE_SOFT@; border-radius: 12px; }
+QDialog#Palette { background-color: @CARD@; border: 1px solid @BORDER@; border-radius: 12px; }
+
+/* ---------- buttons ---------- */
+QPushButton { background-color: @CARD@; color: @TEXT_BODY@; border: none; border-radius: 8px;
+    padding: 6px 12px; font-size: 12px; }
+QPushButton:hover { background-color: @RAISED@; color: @TEXT@; }
+QPushButton:pressed { background-color: @BORDER@; }
+QPushButton:disabled { background-color: @CARD@; color: @TEXT_FAINT@; }
+QPushButton#Navigation { background-color: transparent; border: none; border-radius: 8px;
+    color: @TEXT_MUTED@; text-align: left; padding: 6px 10px; font-size: 12px; }
+QPushButton#Navigation:hover { background-color: @CARD@; color: @TEXT@; }
+QPushButton#Navigation:checked { background-color: @NAV_ACTIVE@; color: @LIGHTER@; font-weight: 600; }
+QPushButton#NavGroup { background-color: transparent; border: none; border-radius: 6px; color: @TEXT_FAINT@;
+    text-align: left; padding: 6px 8px; font-size: 9px; font-weight: 700; }
+QPushButton#NavGroup:hover { color: @TEXT@; background-color: transparent; }
 QFrame#NavGroupBody { background: transparent; border: none; }
-QWidget#DevToolsPanel { background-color: #130e21; border: 1px solid @ACCENT@; }
-QWidget#DevBar { background-color: #1e1535; }
+QWidget#DevToolsPanel { background-color: @CARD@; border: 1px solid @BORDER@; }
+QWidget#DevBar { background-color: @RAISED@; }
 QLabel#DevTitle { color: @LIGHTER@; font-weight: 700; font-size: 11px; }
-QPushButton#Primary { background-color: @STRONG@; color: @ON_STRONG@; border: none; font-weight: bold; }
-QPushButton#Primary:hover { background-color: @ACCENT@; color: @ON_ACCENT@; }
-QPushButton#CornerButton { background-color: @STRONG@; color: @ON_STRONG@; border: none; border-radius: 6px;
-    padding: 5px 12px; margin: 0px 0px 6px 6px; font-weight: bold; }
-QPushButton#CornerButton:hover { background-color: @ACCENT@; color: @ON_ACCENT@; }
-QPushButton#Danger { background-color: #2a1220; border: 1px solid #5b1f3a; color: @ERR@; }
-QPushButton#Danger:hover { background-color: #3d1730; border: 1px solid #be3a68; }
+QPushButton#Primary, QPushButton#CornerButton {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 @ACCENT@, stop:1 @STRONG@);
+    color: @ON_STRONG@; border: none; font-weight: 600; }
+QPushButton#Primary:hover, QPushButton#CornerButton:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 @SOFT@, stop:1 @ACCENT@); color: @ON_ACCENT@; }
+QPushButton#CornerButton { border-radius: 7px; padding: 3px 10px; margin: 0px 0px 6px 6px; }
+QPushButton#Danger { background-color: #1a0f18; border: none; color: @ERR@; }
+QPushButton#Danger:hover { background-color: #2a1220; }
 QPushButton#TabClose { background-color: transparent; border: none; border-radius: 4px; padding: 0px;
-    font-size: 15px; color: @TEXT_MUTED@; }
+    font-size: 14px; color: @TEXT_FAINT@; }
 QPushButton#TabClose:hover { background-color: #3d1730; color: @ERR@; }
 
-QLineEdit, QComboBox, QSpinBox { background-color: #0e0a18; color: @TEXT@; border: 1px solid #2a1f45;
+/* ---------- inputs ---------- */
+QLineEdit, QComboBox, QSpinBox { background-color: @INPUT@; color: @TEXT@; border: 1px solid @LINE_SOFT@;
     border-radius: 8px; font-size: 12px; selection-background-color: @STRONG@; selection-color: @ON_STRONG@;
     placeholder-text-color: @TEXT_PLACEHOLDER@; }
-QLineEdit { padding: 9px 12px; }
-QComboBox { padding: 8px 12px; min-width: 140px; }
-QSpinBox { padding: 7px 10px; min-width: 80px; }
-QLineEdit:focus, QSpinBox:focus, QComboBox:hover, QComboBox:focus { border: 1px solid @ACCENT@; }
-QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right; border: none; width: 26px; }
+QLineEdit { padding: 6px 10px; }
+QComboBox { padding: 5px 10px; min-width: 120px; }
+QSpinBox { padding: 5px 9px; min-width: 70px; }
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 1px solid @ACCENT@; }
+QLineEdit:hover, QComboBox:hover, QSpinBox:hover { border: 1px solid @LINE@; }
+QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right; border: none; width: 24px; }
 QComboBox::down-arrow { image: @ARROW@; width: 10px; height: 10px; }
-QComboBox QAbstractItemView { background-color: #130e21; border: 1px solid #2a1f45;
-    selection-background-color: @STRONG@; selection-color: @ON_STRONG@; color: @TEXT@; outline: 0; }
-QPlainTextEdit#Log { background-color: #0e0a18; border: 1px solid #2a1f45; border-radius: 8px; padding: 6px;
-    font-family: 'Consolas'; font-size: 12px; color: @LOG@; selection-background-color: @STRONG@;
-    selection-color: @ON_STRONG@; }
+QComboBox QAbstractItemView { background-color: @CARD@; border: 1px solid @LINE@; border-radius: 8px;
+    selection-background-color: @NAV_ACTIVE@; selection-color: @TEXT@; color: @TEXT@; outline: 0; padding: 3px; }
+QPlainTextEdit#Log, QPlainTextEdit#TerminalOutput { background-color: @INPUT@; border: 1px solid @LINE_SOFT@;
+    border-radius: 10px; padding: 6px; font-family: 'Consolas'; font-size: 12px; color: @LOG@;
+    selection-background-color: @STRONG@; selection-color: @ON_STRONG@; }
 
-QListWidget { background-color: #0e0a18; border: 1px solid #2a1f45; border-radius: 8px; padding: 6px;
-    font-size: 13px; outline: 0; }
-QListWidget::item { padding: 9px 10px; border-radius: 6px; }
-QTreeWidget { background-color: #0e0a18; alternate-background-color: #130e21;
-    border: 1px solid #2a1f45; border-radius: 8px; padding: 5px; outline: 0; }
-QTreeWidget::item { padding: 5px 4px; border-radius: 4px; }
-QListWidget::item:hover, QTreeWidget::item:hover { background-color: #181129; }
-QListWidget::item:selected, QTreeWidget::item:selected { background-color: @STRONG@; color: @ON_STRONG@; }
-QHeaderView::section { background-color: #171126; color: @TEXT_MUTED@; border: none;
-    border-bottom: 1px solid #2a1f45; padding: 6px 8px; font-weight: bold; }
+/* ---------- lists / trees ---------- */
+QListWidget { background-color: transparent; border: none; border-radius: 10px; padding: 2px;
+    font-size: 12px; outline: 0; }
+QListWidget::item { padding: 5px 8px; border-radius: 6px; }
+QTreeWidget, QTreeView { background-color: @INPUT@; alternate-background-color: @CARD@;
+    border: 1px solid @LINE_SOFT@; border-radius: 10px; padding: 4px; outline: 0; }
+QTreeWidget::item, QTreeView::item { padding: 4px 4px; border-radius: 4px; }
+QListWidget::item:hover, QTreeWidget::item:hover, QTreeView::item:hover { background-color: @RAISED@; }
+QListWidget::item:selected, QTreeWidget::item:selected, QTreeView::item:selected {
+    background-color: @NAV_ACTIVE@; color: @TEXT@; }
+QHeaderView::section { background-color: transparent; color: @TEXT_FAINT@; border: none;
+    border-bottom: 1px solid @LINE_SOFT@; padding: 5px 8px; font-weight: bold; font-size: 11px; }
 
-QTabWidget#Tabs::pane { border: 1px solid @BORDER@; border-radius: 8px; background: #000000; top: 0px; padding: 4px; }
+/* ---------- tabs ---------- */
+QTabWidget#Tabs::pane { border: 1px solid @LINE_SOFT@; border-radius: 12px; background: #000000; top: 0px; padding: 3px; }
 QTabBar { background: transparent; }
-QTabBar::tab { background-color: #130e21; color: @TEXT_MUTED@; border: 1px solid #2a1f45; border-bottom: none;
-    border-top-left-radius: 8px; border-top-right-radius: 8px; padding: 7px 12px; margin-right: 3px;
+QTabBar::tab { background-color: transparent; color: @TEXT_MUTED@; border: 1px solid transparent; border-bottom: none;
+    border-top-left-radius: 8px; border-top-right-radius: 8px; padding: 5px 11px; margin-right: 2px;
     margin-bottom: 6px; font-size: 12px; }
-QTabBar::tab:selected { background-color: #1e1535; color: @LIGHTER@; border-color: @HOVERBORDER@; }
-QTabBar::tab:hover:!selected { background-color: #181129; color: @TEXT@; }
+QTabBar::tab:selected { background-color: @NAV_ACTIVE@; color: @LIGHTER@; border-color: @BORDER@; }
+QTabBar::tab:hover:!selected { background-color: @RAISED@; color: @TEXT@; }
 
-QMenu { background-color: #130e21; border: 1px solid #2a1f45; padding: 4px; }
-QMenu::item { padding: 7px 22px; border-radius: 6px; }
-QMenu::item:selected { background-color: @STRONG@; color: @ON_STRONG@; }
-QMenu::separator { height: 1px; background: #2a1f45; margin: 4px 8px; }
+/* ---------- menus ---------- */
+QMenu { background-color: @CARD@; border: 1px solid @LINE@; border-radius: 8px; padding: 4px; }
+QMenu::item { padding: 6px 20px; border-radius: 5px; }
+QMenu::item:selected { background-color: @NAV_ACTIVE@; color: @TEXT@; }
+QMenu::separator { height: 1px; background: @LINE@; margin: 4px 8px; }
 
-QCheckBox { background: transparent; spacing: 10px; font-size: 12px; }
-QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid @BORDER@; border-radius: 4px; background: #0e0a18; }
+/* ---------- toggles / progress ---------- */
+QCheckBox { background: transparent; spacing: 9px; font-size: 12px; }
+QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid @LINE@; border-radius: 4px; background: @INPUT@; }
 QCheckBox::indicator:hover { border: 1px solid @ACCENT@; }
 QCheckBox::indicator:checked { background: @ACCENT@; border: 1px solid @ACCENT@; image: @CHECK@; }
-
-QProgressBar { background-color: #0e0a18; border: 1px solid #2a1f45; border-radius: 6px; }
-QProgressBar::chunk { background-color: @ACCENT@; border-radius: 5px; }
+QProgressBar { background-color: @INPUT@; border: none; border-radius: 6px; }
+QProgressBar::chunk { background-color: @ACCENT@; border-radius: 6px; }
 QSplitter::handle { background: transparent; }
 QSplitter::handle:vertical { height: 8px; }
+
+/* ---------- scrollbars: slim, no track ---------- */
 QScrollArea { border: none; }
-QScrollBar:vertical { background: #08070d; width: 10px; }
-QScrollBar:horizontal { background: #08070d; height: 10px; }
-QScrollBar::handle:vertical { background: @BORDER@; border-radius: 5px; min-height: 24px; }
-QScrollBar::handle:horizontal { background: @BORDER@; border-radius: 5px; min-width: 24px; }
+QScrollBar:vertical { background: transparent; width: 6px; margin: 2px; }
+QScrollBar:horizontal { background: transparent; height: 6px; margin: 2px; }
+QScrollBar::handle:vertical { background: @LINE@; border-radius: 2px; min-height: 28px; }
+QScrollBar::handle:horizontal { background: @LINE@; border-radius: 2px; min-width: 28px; }
 QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover { background: @HOVERBORDER@; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0px; width: 0px; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 """
 
 
@@ -992,16 +1015,20 @@ def build_style(settings):
     accent, strong, soft, light, lighter, border, hover_border = get_palette(settings)
     check = ui_icon("check", on_color(accent), 16, [(3.5, 8.5), (6.5, 11.5), (12.0, 5.0)], 2.2)
     arrow = ui_icon("arrow", TEXT_MUTED, 10, [(2.0, 3.5), (5.0, 6.5), (8.0, 3.5)], 1.6)
+    tokens = {
+        "ACCENT": accent, "STRONG": strong, "SOFT": soft, "LIGHT": light, "LIGHTER": lighter,
+        "BORDER": border, "HOVERBORDER": hover_border,
+        "ON_STRONG": on_color(strong), "ON_ACCENT": on_color(accent),
+        "TEXT_BODY": TEXT_BODY, "TEXT_MUTED": TEXT_MUTED, "TEXT_FAINT": TEXT_FAINT,
+        "TEXT_PLACEHOLDER": TEXT_PLACEHOLDER, "TEXT": TEXT, "ERR": ERR_COLOR, "LOG": LOG_COLOR,
+        "CHECK": check, "ARROW": arrow,
+        "BG": BACKGROUND, "SIDEBAR": SURFACE_SIDEBAR, "CARD": SURFACE_CARD, "RAISED": SURFACE_RAISED,
+        "RAISED_HOVER": mix(SURFACE_RAISED, accent, 0.14), "INPUT": SURFACE_INPUT,
+        "LINE": LINE, "LINE_SOFT": LINE_SOFT, "NAV_ACTIVE": mix(accent, BACKGROUND, 0.88),
+    }
     style = STYLE_TEMPLATE
-    for token, value in (
-        ("@ACCENT@", accent), ("@STRONG@", strong), ("@SOFT@", soft), ("@LIGHT@", light),
-        ("@LIGHTER@", lighter), ("@BORDER@", border), ("@HOVERBORDER@", hover_border),
-        ("@ON_STRONG@", on_color(strong)), ("@ON_ACCENT@", on_color(accent)),
-        ("@TEXT_BODY@", TEXT_BODY), ("@TEXT_MUTED@", TEXT_MUTED), ("@TEXT_FAINT@", TEXT_FAINT),
-        ("@TEXT_PLACEHOLDER@", TEXT_PLACEHOLDER), ("@TEXT@", TEXT), ("@ERR@", ERR_COLOR),
-        ("@LOG@", LOG_COLOR), ("@CHECK@", check), ("@ARROW@", arrow),
-    ):
-        style = style.replace(token, value)
+    for token, value in tokens.items():
+        style = style.replace(f"@{token}@", value)
     return style
 
 
@@ -1010,17 +1037,21 @@ def build_style(settings):
 # ============================================================
 
 class RowDelegate(QStyledItemDelegate):
-    """Paints a row as: title + muted subtitle on the left, a colored badge on the right."""
-    ROW_H = 54
-    BADGES = {"ok": ("#12352a", OK_COLOR), "warn": ("#3a2d0f", WARN_COLOR),
-              "info": ("#231a3a", "#c4b5fd"), "muted": ("#1a1230", TEXT_MUTED)}
+    """Compact row: title + muted subtitle on the left, a small badge on the right.
+    Selected rows get a soft accent tint and a slim accent bar instead of a solid fill."""
+    ROW_H = 40
+    BADGES = {"ok": ("#10302a", OK_COLOR), "warn": ("#33290f", WARN_COLOR),
+              "info": ("#1d1b38", "#c4b5fd"), "muted": (SURFACE_RAISED, TEXT_MUTED)}
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.strong, self.on_strong = "#7c3aed", "#ffffff"
+        self.set_colors("#7c3aed", "#ffffff")
 
     def set_colors(self, strong, on_strong):
         self.strong, self.on_strong = strong, on_strong
+        self.tint = mix(strong, BACKGROUND, 0.88)
+        self.tint_line = mix(strong, BACKGROUND, 0.62)
+        self.bar = mix(strong, "#ffffff", 0.25)
 
     def sizeHint(self, option, index):
         return QSize(option.rect.width(), self.ROW_H)
@@ -1038,40 +1069,42 @@ class RowDelegate(QStyledItemDelegate):
         rect = option.rect.adjusted(2, 2, -2, -2)
         selected = bool(option.state & QStyle.State_Selected)
         hover = bool(option.state & QStyle.State_MouseOver)
+
+        body = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setBrush(QColor(self.tint if selected else SURFACE_CARD if hover else BACKGROUND))
+        painter.setPen(QPen(QColor(self.tint_line), 1) if selected else Qt.NoPen)
+        painter.drawRoundedRect(body, 8, 8)
+        if selected:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(self.bar))
+            painter.drawRoundedRect(QRectF(rect.left() + 1, rect.top() + 11, 2, rect.height() - 22), 1, 1)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(self.strong if selected else "#181129" if hover else "#130e21"))
-        painter.drawRoundedRect(rect, 8, 8)
 
         title = str(index.data(ROLE_TITLE) or "")
         sub = str(index.data(ROLE_SUB) or "")
         badge = str(index.data(ROLE_BADGE) or "")
         kind = str(index.data(ROLE_KIND) or "muted")
         if index.data(ROLE_PIN):
-            title = "\u2605 " + title
-        title_font = self._font(option.font, 10.5, True)
-        sub_font = self._font(option.font, 8.5)
-        badge_font = self._font(option.font, 8.5, True)
+            title = "★ " + title
+        title_font = self._font(option.font, 9.5, True)
+        sub_font = self._font(option.font, 8)
+        badge_font = self._font(option.font, 8, True)
 
-        right_edge = rect.right() - 12
+        right_edge = rect.right() - 10
         if badge:
-            bw = QFontMetrics(badge_font).horizontalAdvance(badge) + 18
-            brect = QRect(right_edge - bw, rect.center().y() - 11, bw, 22)
-            if selected:
-                badge_bg, badge_fg = QColor(0, 0, 0, 70), QColor(self.on_strong)
-            else:
-                bg_hex, fg_hex = self.BADGES.get(kind, self.BADGES["muted"])
-                badge_bg, badge_fg = QColor(bg_hex), QColor(fg_hex)
-            painter.setBrush(badge_bg)
-            painter.drawRoundedRect(brect, 11, 11)
+            bw = QFontMetrics(badge_font).horizontalAdvance(badge) + 16
+            brect = QRect(right_edge - bw, rect.center().y() - 9, bw, 18)
+            bg_hex, fg_hex = self.BADGES.get(kind, self.BADGES["muted"])
+            painter.setBrush(QColor(mix(self.strong, BACKGROUND, 0.7)) if selected else QColor(bg_hex))
+            painter.drawRoundedRect(brect, 9, 9)
             painter.setFont(badge_font)
-            painter.setPen(badge_fg)
+            painter.setPen(QColor(TEXT if selected else fg_hex))
             painter.drawText(brect, Qt.AlignCenter, badge)
-            right_edge = brect.left() - 12
+            right_edge = brect.left() - 10
 
         left = rect.left() + 14
         text_w = max(40, right_edge - left)
-        for text, font, color, top, h in ((title, title_font, self.on_strong if selected else TEXT, 7, 20),
-                                          (sub, sub_font, self.on_strong if selected else TEXT_MUTED, 28, 16)):
+        for text, font, color, top, h in ((title, title_font, TEXT, 3, 18), (sub, sub_font, TEXT_MUTED, 21, 14)):
             if text:
                 painter.setFont(font)
                 painter.setPen(QColor(color))
@@ -1216,12 +1249,12 @@ class CommandPalette(QDialog):
 
 
 class DonutUsageWidget(QWidget):
-    """Compact live usage donut for the dashboard."""
+    """Slim usage ring. Calm violet normally, amber from 75%, rose from 90%."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.value, self.available = 0.0, True
-        self.setMinimumSize(112, 112)
+        self.setMinimumSize(96, 96)
         self.setMaximumSize(132, 132)
 
     def set_value(self, value, available=True):
@@ -1232,16 +1265,17 @@ class DonutUsageWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        d = min(self.width(), self.height()) - 18
+        d = min(self.width(), self.height()) - 14
         rect = QRectF((self.width() - d) / 2, (self.height() - d) / 2, d, d)
         painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(QColor("#302541"), 10, Qt.SolidLine, Qt.RoundCap))
+        painter.setPen(QPen(QColor(LINE), 5, Qt.SolidLine, Qt.RoundCap))
         painter.drawArc(rect, 90 * 16, -360 * 16)
-        if self.available:
-            painter.setPen(QPen(QColor("#a879ff"), 10, Qt.SolidLine, Qt.RoundCap))
+        if self.available and self.value > 0:
+            color = ERR_COLOR if self.value >= 90 else WARN_COLOR if self.value >= 75 else "#a78bfa"
+            painter.setPen(QPen(QColor(color), 5, Qt.SolidLine, Qt.RoundCap))
             painter.drawArc(rect, 90 * 16, -int(self.value * 3.6 * 16))
-        painter.setPen(QColor("#f2eaff"))
-        painter.setFont(QFont("Segoe UI", 16, QFont.Bold))
+        painter.setPen(QColor(TEXT))
+        painter.setFont(QFont("Segoe UI", 11, QFont.DemiBold))
         painter.drawText(self.rect(), Qt.AlignCenter, f"{self.value:.0f}%" if self.available else "N/A")
         painter.end()
 
@@ -2783,7 +2817,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setFrameShape(QFrame.NoFrame)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sidebar_scroll.setFixedWidth(216)
+        sidebar_scroll.setFixedWidth(196)
         sidebar_scroll.setWidget(self._build_sidebar())
         main_layout.addWidget(sidebar_scroll)
 
@@ -2858,8 +2892,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
         card = QFrame()
         card.setObjectName("Card")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(22, 20, 22, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(16, 12, 16, 14)
+        layout.setSpacing(6)
         layout.addWidget(MainWindow._label(title, "SectionTitle"))
         layout.addWidget(MainWindow._label(description, "Description", True))
         return card, layout
@@ -2874,7 +2908,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
             row.addWidget(b, alignment=Qt.AlignTop)
         return row
 
-    def _page(self, title, description, buttons=(), margins=(30, 30, 30, 30), gap=0):
+    def _page(self, title, description, buttons=(), margins=(22, 18, 22, 18), gap=0):
         """New page widget with a standard header. Returns (page, layout)."""
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -2912,6 +2946,11 @@ class MainWindow(ExtrasMixin, QMainWindow):
         label.setText(text)
         label.setStyleSheet(f"color: {OK_COLOR};" if ok else f"color: {ERR_COLOR};")
 
+    def _refresh_logo(self):
+        lab = getattr(self, "logo_label", None)
+        if lab is not None:
+            lab.setText(f'Pocket<span style="color:{get_palette(self.settings)[3]};">Term</span>')
+
     def _apply_style(self):
         self.setStyleSheet(build_style(self.settings))
         strong = get_palette(self.settings)[1]
@@ -2921,6 +2960,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
             widget = getattr(self, name, None)
             if widget is not None:
                 widget.viewport().update()
+        self._refresh_logo()
 
     def _new_row_delegate(self, list_widget):
         d = RowDelegate(list_widget)
@@ -2942,14 +2982,17 @@ class MainWindow(ExtrasMixin, QMainWindow):
     def _build_sidebar(self):
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setMinimumWidth(196)
-        sidebar.setMaximumWidth(216)
+        sidebar.setMinimumWidth(176)
+        sidebar.setMaximumWidth(196)
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(16, 24, 16, 20)
-        layout.setSpacing(5)
-        layout.addWidget(self._label("PocketTerm", "Logo"))
+        layout.setContentsMargins(12, 20, 12, 16)
+        layout.setSpacing(2)
+        self.logo_label = self._label("", "Logo")
+        self.logo_label.setTextFormat(Qt.RichText)
+        layout.addWidget(self.logo_label)
+        self._refresh_logo()
         layout.addWidget(self._label("DEVELOPER ENVIRONMENT", "Subtitle"))
-        layout.addSpacing(24)
+        layout.addSpacing(16)
 
         self.nav_buttons = {}
         self.nav_group = QButtonGroup(self)
@@ -2977,7 +3020,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
             body.setObjectName("NavGroupBody")
             body_layout = QVBoxLayout(body)
             body_layout.setContentsMargins(8, 0, 0, 4)
-            body_layout.setSpacing(4)
+            body_layout.setSpacing(1)
             for label, index in items:
                 add_nav(body_layout, label, index)
                 self._nav_page_group[index] = group
@@ -3144,7 +3187,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
         for i, (title, key, initial) in enumerate(card_specs):
             card = QFrame()
             card.setObjectName("Card")
-            card.setMinimumHeight(118)
+            card.setMinimumHeight(88)
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(16, 13, 16, 13)
             card_layout.setSpacing(7)
@@ -3157,7 +3200,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
                 row = QHBoxLayout()
                 row.setSpacing(12)
                 self.dashboard_donuts[key] = DonutUsageWidget()
-                self.dashboard_donuts[key].setFixedSize(66, 66)
+                self.dashboard_donuts[key].setFixedSize(58, 58)
                 row.addWidget(self.dashboard_donuts[key], 0, Qt.AlignVCenter)
                 row.addWidget(value_label, 1, Qt.AlignVCenter)
                 card_layout.addLayout(row)
@@ -5596,7 +5639,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
         content = QWidget()
         cl = QVBoxLayout(content)
         cl.setContentsMargins(0, 0, 12, 30)
-        cl.setSpacing(16)
+        cl.setSpacing(8)
 
         # ----- Terminal -----
         card, lay = self._make_card("Terminal", "Choose which Git Bash launcher to use and control the session.")
