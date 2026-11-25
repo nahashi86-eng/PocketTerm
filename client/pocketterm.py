@@ -1958,6 +1958,40 @@ def wsl_import_in_place(wsl, name, vhdx):
     return True, out
 
 
+def wsl_registry_distros():
+    """Distros registered in WSL, read from the registry: [{'name','base','vhd'}]. Empty list on failure."""
+    out = []
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Lxss") as root:
+            i = 0
+            while True:
+                try:
+                    sub = winreg.EnumKey(root, i)
+                except OSError:
+                    break
+                i += 1
+                try:
+                    with winreg.OpenKey(root, sub) as k:
+                        def val(n):
+                            try:
+                                return str(winreg.QueryValueEx(k, n)[0])
+                            except OSError:
+                                return ""
+                        name = val("DistributionName")
+                        if name:
+                            base = val("BasePath")
+                            if base.startswith("\\\\?\\"):
+                                base = base[4:]
+                            out.append({"name": name, "base": os.path.normcase(os.path.normpath(base)),
+                                        "vhd": val("VhdFileName").lower()})
+                except OSError:
+                    continue
+    except Exception as e:
+        log.warning("Could not read WSL registry entries: %s", e)
+    return out
+
+
 class EmbeddedWSL(EmbeddedWindow):
     """Runs the VHDX as a WSL distro. The first start registers it with `wsl --import-in-place`; every
     start opens `wsl.exe -d <name>` inside a classic console host (conhost.exe), whose window is embedded."""
@@ -1977,7 +2011,7 @@ class EmbeddedWSL(EmbeddedWindow):
     def build_launch(self, target=None):
         wsl = find_wsl()
         if wsl is None:
-            return None, None, "WSL isn't installed on this PC (wsl.exe not found).\nInstall it with: wsl --install"
+            return None, None, "WSL isn't installed on this PC (wsl.exe not found).\nInstall it with the Install WSL button above."
         vhdx = self.vhdx_path()
         if not vhdx or not vhdx.is_file():
             return None, None, f"VHDX not found:\n{vhdx}\n\nPlug in the drive, or use Change VHDX... above."
@@ -1986,12 +2020,44 @@ class EmbeddedWSL(EmbeddedWindow):
             return None, None, "Couldn't ask WSL for its distros. Is WSL working on this PC?"
         distro = self.distro_name()
         if distro.lower() not in {n.lower() for n in names}:
-            self.set_message(f"Registering {vhdx.name} with WSL (first start only)...", False)
-            QApplication.processEvents()
-            ok, message = wsl_import_in_place(wsl, distro, vhdx)
-            if not ok:
-                return None, None, message
-            log.info("Registered %s in WSL as %s", vhdx, distro)
+            reg = wsl_registry_distros()
+            folder = os.path.normcase(os.path.normpath(str(vhdx.parent)))
+            # 1) this exact VHDX is already registered under another name -> just use that name
+            same = next((d for d in reg if d["base"] == folder and d["vhd"] == vhdx.name.lower()), None)
+            if same:
+                distro = same["name"]
+                self.settings.set("wsl_distro", distro)
+                log.info("%s is already registered as %s; using it.", vhdx, distro)
+            else:
+                # 2) another distro owns this folder -> WSL allows one distro per folder, so give this disk its own
+                if any(d["base"] == folder for d in reg):
+                    clash = next(d["name"] for d in reg if d["base"] == folder)
+                    new_dir = vhdx.parent / (re.sub(r"[^A-Za-z0-9_-]", "", vhdx.stem) or "wsl")
+                    new_vhdx = new_dir / vhdx.name
+                    if QMessageBox.question(
+                            None, "WSL folder already in use",
+                            f"The folder {vhdx.parent} is already used by the WSL distro '{clash}'.\n"
+                            f"WSL allows one distro per folder.\n\nMove {vhdx.name} to:\n{new_vhdx}\n"
+                            "and register it from there?") != QMessageBox.Yes:
+                        return None, None, (f"{vhdx.parent} is already used by the WSL distro '{clash}'.\n"
+                                            "Move the VHDX into its own folder and pick it again.")
+                    try:
+                        new_dir.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(vhdx), str(new_vhdx))
+                    except (OSError, shutil.Error) as e:
+                        return None, None, f"Couldn't move the VHDX (is it in use?):\n{e}"
+                    self.settings.set("wsl_vhdx_path", os.path.normpath(str(new_vhdx)))
+                    vhdx = new_vhdx
+                self.set_message(f"Registering {vhdx.name} with WSL (first start only)...", False)
+                QApplication.processEvents()
+                ok, message = wsl_import_in_place(wsl, distro, vhdx)
+                if not ok:
+                    if "ERROR_FILE_EXISTS" in message:
+                        message += ("\n\nAnother WSL distro already uses this folder. Run `wsl -l -v`, "
+                                    "or `wsl --unregister <old name>` if it is a stale entry "
+                                    "(this deletes that distro's disk).")
+                    return None, None, message
+                log.info("Registered %s in WSL as %s", vhdx, distro)
         system32 = Path(os.environ.get("SystemRoot") or r"C:\Windows") / "System32"
         conhost = system32 / "conhost.exe"
         program = [str(conhost)] if conhost.is_file() else []
@@ -2949,6 +3015,12 @@ class MainWindow(ExtrasMixin, QMainWindow):
         self._ai_timer = QTimer(self)
         self._ai_timer.setInterval(1000)
         self._ai_timer.timeout.connect(self._ai_poll)
+        # WSL installer (hidden, elevated `wsl --install`)
+        self._wsl_install_proc = None
+        self._wsl_log = self._wsl_done = None
+        self._wsl_install_timer = QTimer(self)
+        self._wsl_install_timer.setInterval(1000)
+        self._wsl_install_timer.timeout.connect(self._wsl_install_tick)
 
         self.setWindowTitle("PocketTerm Launcher")
         self.setAcceptDrops(True)
@@ -3233,6 +3305,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
             PAGE_TOOLS: self._tools_running(), PAGE_AUTOCLICKER: self.ac.running(),
             PAGE_POCKETLAUNCHER: self.pl.running(), PAGE_POCKETVM: self.vm.running(),
             PAGE_CPP: self.cpp.running(), PAGE_NETSCANNER: self.ns.running(),
+            PAGE_MC_SERVER_BOT: self.mcserver_bot.running(),
         }
         for index, base in self._nav_base.items():
             text = base + ("   \u25cf" if self._nav_running.get(index) else "")
@@ -4070,7 +4143,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
             "WSL Terminal",
             "Loads your Ubuntu VHDX with the WSL installed on this PC and shows its terminal here. "
             "The first start registers the disk with WSL (wsl --import-in-place); after that it just opens it.",
-            (self._button("Change VHDX...", self.wsl_pick_vhdx),
+            (self._button("Install WSL", self.wsl_install),
+             self._button("Change VHDX...", self.wsl_pick_vhdx),
              self._button("Stop", lambda: self.wsl.stop("WSL stopped."), "Danger"),
              self._button("Start / Restart WSL", self.wsl_restart, "Primary")), gap=14)
         self.wsl_status = self._status_label(layout)
@@ -4086,7 +4160,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
     def _wsl_refresh_status(self):
         vhdx, wsl = self.wsl.vhdx_path(), find_wsl()
         if wsl is None:
-            self._set_status(self.wsl_status, False, "WSL isn't installed on this PC (wsl.exe not found).")
+            self._set_status(self.wsl_status, False,
+                             "WSL isn't installed on this PC (wsl.exe not found). Press Install WSL.")
         elif not vhdx or not vhdx.is_file():
             self._set_status(self.wsl_status, False, f"VHDX not found: {vhdx}")
         else:
@@ -4110,6 +4185,94 @@ class MainWindow(ExtrasMixin, QMainWindow):
         stem = re.sub(r"[^A-Za-z0-9]", "", Path(path).stem).title() or "Ubuntu"
         self.settings.set("wsl_distro", "Pocket" + stem)
         self._wsl_refresh_status()
+
+    # ---------- WSL installer (hidden, elevated) ----------
+
+    def wsl_install(self):
+        if os.name != "nt":
+            self._set_status(self.wsl_status, False, "WSL can only be installed on Windows.")
+            return
+        if proc_running(self._wsl_install_proc):
+            self._set_status(self.wsl_status, False, "WSL installation is already running.")
+            return
+        if QMessageBox.question(
+                self, "Install WSL",
+                "This runs 'wsl --install' in a hidden window.\n\n"
+                "Windows will ask for administrator permission, and it may need a restart afterwards. "
+                "Continue?") != QMessageBox.Yes:
+            return
+        temp = APP_DIR / "Temp"
+        self._wsl_log = temp / "wsl_install.log"
+        self._wsl_done = temp / "wsl_install.done"
+        bat = temp / "wsl_install.bat"
+        try:
+            temp.mkdir(parents=True, exist_ok=True)
+            self._wsl_log.write_text("", encoding="utf-8")
+            self._wsl_done.unlink(missing_ok=True)
+            bat.write_text(
+                "@echo off\r\n"
+                "set WSL_UTF8=1\r\n"
+                f'wsl.exe --install --no-launch > "{self._wsl_log}" 2>&1\r\n'
+                f'echo %ERRORLEVEL% > "{self._wsl_done}"\r\n', encoding="utf-8")
+        except OSError as e:
+            self._set_status(self.wsl_status, False, f"Couldn't prepare the installer: {e}")
+            return
+        # Start-Process -Verb RunAs shows the UAC prompt; the batch file itself runs hidden.
+        ps = f"Start-Process -FilePath '{bat}' -Verb RunAs -WindowStyle Hidden -Wait"
+        self._wsl_install_proc = new_process(
+            self, lambda: self._wsl_install_proc and self._wsl_install_proc.readAllStandardOutput(),
+            self._wsl_install_finished, self._wsl_install_error)
+        self._wsl_install_proc.start("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps])
+        self._wsl_install_timer.start()
+        self.wsl_status.setStyleSheet("")
+        self.wsl_status.setText("Installing WSL (waiting for administrator approval)...")
+        log.info("WSL install started.")
+
+    def _wsl_install_tick(self):
+        if self._wsl_log is None:
+            return
+        try:
+            text = self._wsl_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        lines = [_ANSI.sub("", ln).replace("\x00", "").strip() for ln in text.replace("\r", "\n").splitlines()]
+        lines = [ln for ln in lines if ln]
+        if lines:
+            self.wsl_status.setStyleSheet("")
+            self.wsl_status.setText("Installing WSL: " + lines[-1])
+
+    def _wsl_install_finished(self, code, _status):
+        self._wsl_install_timer.stop()
+        proc, self._wsl_install_proc = self._wsl_install_proc, None
+        if proc is not None:
+            proc.deleteLater()
+        try:
+            text = self._wsl_log.read_text(encoding="utf-8", errors="replace")
+        except (OSError, AttributeError):
+            text = ""
+        text = _ANSI.sub("", text).replace("\x00", "").strip()
+        tail = " ".join(text.replace("\r", "\n").splitlines()[-3:]) if text else ""
+        try:
+            exit_code = int(self._wsl_done.read_text(encoding="utf-8", errors="ignore").strip() or "-1")
+        except (OSError, ValueError, AttributeError):
+            exit_code = None
+        log.info("WSL install finished (ps=%s, wsl=%s): %s", code, exit_code, tail)
+        if exit_code is None:
+            self._set_status(self.wsl_status, False,
+                             "WSL installation was cancelled or couldn't start (administrator approval is required).")
+        elif exit_code == 0:
+            self._set_status(self.wsl_status, True,
+                             "WSL install finished. If Windows asks for a restart, restart your PC, "
+                             "then press Start / Restart WSL." + (f"  {tail}" if tail else ""))
+        else:
+            self._set_status(self.wsl_status, False,
+                             f"WSL install failed (exit code {exit_code}). {tail}")
+
+    def _wsl_install_error(self, error):
+        if error == QProcess.FailedToStart:
+            self._wsl_install_timer.stop()
+            self._wsl_install_proc = None
+            self._set_status(self.wsl_status, False, "Couldn't start PowerShell to install WSL.")
 
     def _build_vscode_page(self):
         page, layout = self._page(
@@ -5586,6 +5749,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
                 ("PocketVM process", self.vm.running(), "PocketVM helper"),
                 ("C++ Compiler process", self.cpp.running(), "CppRunner.py"),
                 ("Net Scanner process", self.ns.running(), "Net Scanner helper"),
+                ("MCServer Bot process", self.mcserver_bot.running(), "MCServer Bot helper"),
                 ("Background manager", bg, "PocketTerm background manager")):
             add(label, "OK", f"{'Running' if running else 'Stopped'} • {detail}")
 
@@ -5738,6 +5902,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
             self.cpp.stop()
         if self.ns.running() and drive_of(NETSCANNER_FILE) == drive:
             self.ns.stop()
+        if self.mcserver_bot.running() and drive_of(MC_SERVER_BOT_FILE) == drive:
+            self.mcserver_bot.stop()
 
     def eject_drive(self, root):
         drive = drive_of(root)
@@ -6129,6 +6295,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
     def open_palette(self):
         commands = [(f"Go to: {label}", lambda i=index: self.show_page(i)) for index, label in self._nav_base.items()]
         commands += [("Terminal: New tab", self.new_terminal_tab), ("WSL Terminal: Start / restart", self.wsl_restart),
+                     ("WSL Terminal: Install WSL", self.wsl_install),
                      ("VS Code: Open folder...", self.open_folder_in_vscode),
                      ("VS Code: Start / restart", self.restart_vscode), ("Autoclicker: Start / Stop", self.ac_toggle),
                      ("PocketLauncher: Start / Stop", self.pl_toggle), ("PocketVM: Start / Stop", self.vm_toggle),
@@ -6439,7 +6606,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
             return self.vscode
         if index == PAGE_WSL:
             return self.wsl
-        scripts = {PAGE_POCKETLAUNCHER: self.pl, PAGE_POCKETVM: self.vm, PAGE_CPP: self.cpp, PAGE_NETSCANNER: self.ns}
+        scripts = {PAGE_POCKETLAUNCHER: self.pl, PAGE_POCKETVM: self.vm, PAGE_CPP: self.cpp,
+                   PAGE_NETSCANNER: self.ns, PAGE_MC_SERVER_BOT: self.mcserver_bot}
         if index in scripts:
             return scripts[index]
         if index == PAGE_WEB and self.ai_tabs is not None and self.ai_tabs.currentIndex() == 0:
@@ -6757,7 +6925,8 @@ class MainWindow(ExtrasMixin, QMainWindow):
         return (self.terminals.any_running() or self.vscode.is_running() or self.wsl.is_running()
                 or self._tools_running()
                 or self.ai.running() or self.ac.running() or self.pl.running() or self.vm.running()
-                or self.cpp.running() or self.ns.running() or proc_running(self.jar_proc) or self._script_running())
+                or self.cpp.running() or self.ns.running() or self.mcserver_bot.running()
+                or proc_running(self.jar_proc) or self._script_running())
 
     @staticmethod
     def _kill_process(proc):
@@ -6769,7 +6938,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
             answer = QMessageBox.question(
                 self, "Close PocketTerm",
                 "The terminal, VS Code, PocketAi, the autoclicker, PocketLauncher, PocketVM, the C++ compiler, Net Scanner, "
-                "a tool or a script is still running.\nClosing PocketTerm will stop them. Close anyway?")
+                "MCServer Bot, a tool or a script is still running.\nClosing PocketTerm will stop them. Close anyway?")
             if answer != QMessageBox.Yes:
                 event.ignore()
                 return
@@ -6779,7 +6948,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
         self.settings.save()
 
         for timer in (self._nav_timer, self._focus_timer, self._drives_timer, self._ports_timer,
-                      self._dashboard_timer, self._update_timer):
+                      self._dashboard_timer, self._update_timer, self._wsl_install_timer):
             timer.stop()
         for rel in list(self._loaded_plugins):
             self._unload_plugin(rel)
@@ -6799,7 +6968,7 @@ class MainWindow(ExtrasMixin, QMainWindow):
         if self._script_running():
             self.stop_script()
         self._ai_timer.stop()
-        for managed in (self.ai, self.ac, self.pl, self.vm, self.cpp, self.ns):
+        for managed in (self.ai, self.ac, self.pl, self.vm, self.cpp, self.ns, self.mcserver_bot):
             managed.shutdown()
         if proc_running(self.jar_proc):
             self.jar_proc.terminate()
